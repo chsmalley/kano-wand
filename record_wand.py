@@ -4,6 +4,20 @@ from bluepy.btle import DefaultDelegate, Scanner
 import time
 import pandas as pd
 
+SPELLS = [
+    "STUPEFY",
+    "WINGARDIUM_LEVIOSA",
+    "REDUCIO",
+    "FLIPENDO",
+    "EXPELLIARMUS",
+    "INCENDIO",
+    "LUMOS",
+    "LOCOMOTOR",
+    "ENGORGIO",
+    "AGUAMENTI",
+    "AVIS",
+    "REDUCTO"
+]
 
 class RecordWand(Wand):
     def __init__(self, *args, **kwargs):
@@ -17,6 +31,10 @@ class RecordWand(Wand):
             "z": [],
             "w": []
         }
+        self.spells = iter(SPELLS)
+        self.current_spell = next(self.spells)
+        print("press button and perform spell {}".format())
+        print("release button when finished")
 
     def post_connect(self):
         self.subscribe_button()
@@ -33,15 +51,27 @@ class RecordWand(Wand):
             self.data["w"].append(w)
 
     def on_button(self, pressed):
-        self.pressed = pressed
         print("on_button: {}".format(pressed))
-        if not pressed:
-            print("current pressed status: {self.pressed}")
+        # When button is released
+        if self.pressed and not pressed:
+            # Save data from previous spell 
+            pd.DataFrame.from_dict(
+                self.data,
+                orient='index'
+            ).transpose().to_csv(self.current_spell + ".csv",
+                                 index=False)
 
-    def post_disconnect(self):
-        pd.DataFrame.from_dict(self.data,
-                               orient='index').transpose().to_csv("tmp.csv",
-                                                                  index=False)
+            # Tell user which spell to perform next
+            self.current_spell = next(self.spells)
+            print("current pressed status: {self.pressed}")
+            print("press button and perform spell {}".format())
+            print("release button when finished")
+        self.pressed = pressed
+
+    # def post_disconnect(self):
+    #     pd.DataFrame.from_dict(self.data,
+    #                            orient='index').transpose().to_csv("tmp.csv",
+    #                                                               index=False)
 
 
 class WandScanner(DefaultDelegate):
