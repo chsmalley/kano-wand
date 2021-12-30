@@ -25,7 +25,8 @@ def make_euler(q):
     q_norm = q / np.linalg.norm(q)
     r = R.from_quat(q_norm)
     euler = r.as_euler('zyx', degrees=True)
-    print(f"euler: {euler}")
+    # euler = r.as_euler('xzy', degrees=True)
+    print(f"roll: {euler[0]}\tyaw: {euler[1]}\tpitch: {euler[2]}")
     return euler
 
 class RecordWand(Wand):
@@ -52,16 +53,17 @@ class RecordWand(Wand):
     def on_position(self, x, y, z, w):
         if self.pressed:
             euler = make_euler(np.array((y, x, w, z)))
-            print("saving position: {} {} {} {}".format(x, y, z, w))
+            # euler = make_euler(np.array((x, y, z, w)))
+            # print("saving position: {} {} {} {}".format(x, y, z, w))
             self.data["time"].append(time.time())
             self.data["x"].append(x)
             self.data["y"].append(y)
             self.data["z"].append(z)
             self.data["w"].append(w)
-            print(f"euler: {euler}")
             # euler = make_euler(np.array((y, x, w, z)))
 
     def on_button(self, pressed):
+        self.reset_position()
         print("on_button: {}".format(pressed))
         print("self pressed: {}".format(self.pressed))
         # When button is released
