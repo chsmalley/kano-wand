@@ -5,6 +5,7 @@ from typing import Tuple
 import pandas as pd
 import numpy as np
 import math
+from scipy.spatial.transform import Rotation as R
 pd.options.plotting.backend = "plotly"
 
 Quaternion = Tuple[float, float, float, float]
@@ -12,13 +13,20 @@ Quaternion = Tuple[float, float, float, float]
 def make_quat(x: pd.Series):
     return np.array((x["x"], x["y"], x["z"], x["w"]))
 
+def make_euler(x: pd.Series):
+    r = R.from_quat(x["q0"])
+    euler = r.as_euler('zyx', degrees=True)
+    print(f"euler: {euler}")
+    return euler
+
 def plot_spell(filename: str):
     title = os.path.splitext(
         os.path.basename(filename))[0]
     df = pd.read_csv(filename, index_col="time")
     # Add distance to dataframe
-    # df["q0"] = df.apply(func=make_quat, axis=1)
-    # df["q1"] = df["q0"].shift(1)
+    df["q0"] = df.apply(func=make_quat, axis=1)
+    df["q1"] = df["q0"].shift(1)
+    df["euler"] = df.apply(func=make_euler, axis=1)
     # df["dist1"] = df.apply(func=angle_distance, axis=1)
     # df["dist2"] = df.apply(func=euclidean_distance, axis=1)
     print(df)

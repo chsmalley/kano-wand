@@ -509,8 +509,12 @@ class Wand(Peripheral, DefaultDelegate):
         x = numpy.int16(numpy.uint16(int.from_bytes(data[2:4], byteorder='little')))
         w = numpy.int16(numpy.uint16(int.from_bytes(data[4:6], byteorder='little')))
         z = numpy.int16(numpy.uint16(int.from_bytes(data[6:8], byteorder='little')))
-
+        x = x / 1024
+        y = y / 1024
+        z = z / 1024
+        w = w / 1024
         if self.debug:
+            # THIS IS NOT CORRECT
             pitch = "Pitch: {}".format(z).ljust(16)
             roll = "Roll: {}".format(w).ljust(16)
             print("{}{}(x, y): ({}, {})".format(pitch, roll, x, y))

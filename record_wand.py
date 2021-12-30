@@ -3,6 +3,8 @@ from .kano_wand import Wand
 from bluepy.btle import DefaultDelegate, Scanner
 import time
 import pandas as pd
+from scipy.spatial.transform import Rotation as R
+import numpy as np
 
 SPELLS = [
     "STUPEFY",
@@ -18,6 +20,13 @@ SPELLS = [
     "AVIS",
     "REDUCTO"
 ]
+
+def make_euler(q):
+    q_norm = q / np.linalg.norm(q)
+    r = R.from_quat(q_norm)
+    euler = r.as_euler('zyx', degrees=True)
+    print(f"euler: {euler}")
+    return euler
 
 class RecordWand(Wand):
     def __init__(self, *args, **kwargs):
@@ -42,12 +51,15 @@ class RecordWand(Wand):
 
     def on_position(self, x, y, z, w):
         if self.pressed:
+            euler = make_euler(np.array((y, x, w, z)))
             print("saving position: {} {} {} {}".format(x, y, z, w))
             self.data["time"].append(time.time())
             self.data["x"].append(x)
             self.data["y"].append(y)
             self.data["z"].append(z)
             self.data["w"].append(w)
+            print(f"euler: {euler}")
+            # euler = make_euler(np.array((y, x, w, z)))
 
     def on_button(self, pressed):
         print("on_button: {}".format(pressed))
