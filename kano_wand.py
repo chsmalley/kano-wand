@@ -500,9 +500,14 @@ class Wand(Peripheral, DefaultDelegate):
             data {bytes} -- Data from device
         """
         # I got part of this from Kano's node module and modified it
+        # y = numpy.int16(numpy.uint16(int.from_bytes(data[0:2], byteorder='little')))
+        # x = -1 * numpy.int16(numpy.uint16(int.from_bytes(data[2:4], byteorder='little')))
+        # w = -1 * numpy.int16(numpy.uint16(int.from_bytes(data[4:6], byteorder='little')))
+        # z = numpy.int16(numpy.uint16(int.from_bytes(data[6:8], byteorder='little')))
+        # TODO: Confirm this section
         y = numpy.int16(numpy.uint16(int.from_bytes(data[0:2], byteorder='little')))
-        x = -1 * numpy.int16(numpy.uint16(int.from_bytes(data[2:4], byteorder='little')))
-        w = -1 * numpy.int16(numpy.uint16(int.from_bytes(data[4:6], byteorder='little')))
+        x = numpy.int16(numpy.uint16(int.from_bytes(data[2:4], byteorder='little')))
+        w = numpy.int16(numpy.uint16(int.from_bytes(data[4:6], byteorder='little')))
         z = numpy.int16(numpy.uint16(int.from_bytes(data[6:8], byteorder='little')))
 
         if self.debug:
@@ -514,7 +519,7 @@ class Wand(Peripheral, DefaultDelegate):
         for callback in self._position_callbacks.values():
             callback(x, y, z, w)
 
-    def on_position(self, roll, x, y, z):
+    def on_position(self, x, y, z, w):
         """Function called on position notification
 
         Arguments:
