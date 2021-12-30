@@ -5,7 +5,7 @@ from typing import Tuple
 import pandas as pd
 import numpy as np
 import math
-# pd.options.plotting.backend = "plotly"
+pd.options.plotting.backend = "plotly"
 
 Quaternion = Tuple[float, float, float, float]
 
@@ -17,14 +17,15 @@ def plot_spell(filename: str):
         os.path.basename(filename))[0]
     df = pd.read_csv(filename, index_col="time")
     # Add distance to dataframe
-    df["q0"] = df.apply(func=make_quat, axis=1)
-    df["q1"] = df["q0"].shift(1)
+    # df["q0"] = df.apply(func=make_quat, axis=1)
+    # df["q1"] = df["q0"].shift(1)
     # df["dist1"] = df.apply(func=angle_distance, axis=1)
-    df["dist2"] = df.apply(func=euclidean_distance, axis=1)
+    # df["dist2"] = df.apply(func=euclidean_distance, axis=1)
     print(df)
     # df["dist"] = df.apply()
-    fig = df.plot(title=filename).get_figure()
-    fig.savefig("tmp.png")
+    fig = df.plot(title=filename)
+    # fig = df.plot(title=filename).get_figure()
+    # fig.savefig("tmp.png")
     fig.show()
     # df.plot(x="time", )
 
@@ -48,6 +49,7 @@ def euclidean_distance(row: pd.Series):
 
 if __name__ == '__main__':
     dirname = sys.argv[1]
-    for filename in glob.glob("*.csv"):
+    print(f"dirname: {dirname}")
+    for filename in glob.glob(dirname  + "*.csv"):
         print(filename)
         plot_spell(filename)

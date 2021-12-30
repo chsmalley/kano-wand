@@ -1,5 +1,5 @@
 import sys
-from .kano_wand.kano_wand import Wand
+from .kano_wand import Wand
 from bluepy.btle import DefaultDelegate, Scanner
 import time
 import pandas as pd
@@ -33,7 +33,7 @@ class RecordWand(Wand):
         }
         self.spells = iter(SPELLS)
         self.current_spell = next(self.spells)
-        print("press button and perform spell {}".format())
+        print(f"press button and perform spell {self.current_spell}")
         print("release button when finished")
 
     def post_connect(self):
@@ -41,7 +41,6 @@ class RecordWand(Wand):
         self.subscribe_position()
 
     def on_position(self, x, y, z, w):
-        print("on_position")
         if self.pressed:
             print("saving position: {} {} {} {}".format(x, y, z, w))
             self.data["time"].append(time.time())
@@ -52,6 +51,7 @@ class RecordWand(Wand):
 
     def on_button(self, pressed):
         print("on_button: {}".format(pressed))
+        print("self pressed: {}".format(self.pressed))
         # When button is released
         if self.pressed and not pressed:
             # Save data from previous spell 
@@ -59,14 +59,15 @@ class RecordWand(Wand):
                 self.data,
                 orient='index'
             ).transpose().to_csv(self.current_spell + ".csv",
-                                 index=False)
+                                index=False)
 
             # Tell user which spell to perform next
             self.current_spell = next(self.spells)
-            print("current pressed status: {self.pressed}")
-            print("press button and perform spell {}".format())
+            print(f"current pressed status: {self.pressed}")
+            print(f"press button and perform spell {self.current_spell}")
             print("release button when finished")
         self.pressed = pressed
+        print(f"slef pressed after: {self.pressed}")
 
     # def post_disconnect(self):
     #     pd.DataFrame.from_dict(self.data,
@@ -98,7 +99,7 @@ class WandScanner(DefaultDelegate):
 
     def scan(
         self,
-        timeout: float=1.0,
+        timeout: float=5.0,
         connect: bool=False
     ):
         """Scan for devices
@@ -114,8 +115,11 @@ class WandScanner(DefaultDelegate):
             print("Scanning for {} seconds...".format(timeout))
 
         self._scanner.scan(timeout)
+        print("after scan")
         if connect:
+            print("before connect")
             self.wand.connect()
+            print("after connect")
         return self.wand
 
     def handleDiscovery(self, device, isNewDev, isNewData):
@@ -129,15 +133,11 @@ class WandScanner(DefaultDelegate):
 
         if isNewDev:
             # Perform initial detection attempt
-            if device.addr == self._kano_mac:
+            if device.addr == self._kano_mac.lower():
                 self.kano_device = device
                 if self.debug:
                     print("found kano wand")
-            if device.addr == self._sphero_mac:
-                self.sphero_device = device
-                if self.debug:
-                    print("found sphero device")
-            if self.kano_device is not None and self.sphero_device is not None:
+            if self.kano_device is not None:
                 if self.debug:
                     print("creating sphero wand")
                 self.wand = RecordWand(device,
