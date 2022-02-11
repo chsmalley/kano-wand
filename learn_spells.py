@@ -11,7 +11,7 @@ import os
 import sys
 import glob
 import json
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Callable
 import pandas as pd
 import numpy as np
 import math
@@ -44,12 +44,21 @@ LABELS = {
 def make_quat(x: pd.Series):
     return np.array((x["x"], x["y"], x["z"], x["w"]))
 
+def angle_distance(x, y):
+    """
+    Assuming these are unit quaternions used to represent rotations
+    """
+    theta = math.acos(np.dot(x, y))
+    if theta > math.pi / 2:
+        theta = math.pi - theta
+    return theta
+
 def dtw_distance(
     ts_a,
     ts_b,
     d = lambda x, y: math.dist(x, y),
-    # d = lambda x, y: abs(x - y),
-    max_warping_window:int = 10000,
+    # d: Callable=angle_distance,
+    max_warping_window: int=100,
 ) -> float:
     """Returns the DTW similarity distance between two 2-D
     timeseries numpy arrays.
@@ -214,18 +223,6 @@ def learn_spell(train_spells: Dict[str, str], test_spells: Dict[str, str]):
     # fig.savefig("tmp.png")
     # fig.show()
     # df.plot(x="time", )
-
-def angle_distance(row: pd.Series):
-    """
-    Assuming these are unit quaternions used to represent rotations
-    """
-    if not isinstance(row["q1"], np.ndarray):
-        return np.nan
-    theta = math.acos(np.dot(row["q0"],
-                             row["q1"]))
-    if theta > math.pi / 2:
-        theta = math.pi - theta
-    return theta
 
 #custom metric
 def DTW(a: List[float], b: List[float]):
