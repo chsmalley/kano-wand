@@ -505,20 +505,16 @@ class Wand(Peripheral, DefaultDelegate):
         # w = -1 * numpy.int16(numpy.uint16(int.from_bytes(data[4:6], byteorder='little')))
         # z = numpy.int16(numpy.uint16(int.from_bytes(data[6:8], byteorder='little')))
         # TODO: Confirm this section
-        y = numpy.int16(numpy.uint16(int.from_bytes(data[0:2], byteorder='little')))
-        x = numpy.int16(numpy.uint16(int.from_bytes(data[2:4], byteorder='little')))
-        w = numpy.int16(numpy.uint16(int.from_bytes(data[4:6], byteorder='little')))
-        z = numpy.int16(numpy.uint16(int.from_bytes(data[6:8], byteorder='little')))
+        w = numpy.uint16(int.from_bytes(data[0:2], byteorder='little'))
+        x = numpy.uint16(int.from_bytes(data[2:4], byteorder='little'))
+        y = numpy.uint16(int.from_bytes(data[4:6], byteorder='little'))
+        z = numpy.uint16(int.from_bytes(data[6:8], byteorder='little'))
         x = x / 1024
         y = y / 1024
         z = z / 1024
         w = w / 1024
         if self.debug:
-            # THIS IS NOT CORRECT
-            pitch = "Pitch: {}".format(z).ljust(16)
-            roll = "Roll: {}".format(w).ljust(16)
-            print("{}{}(x, y): ({}, {})".format(pitch, roll, x, y))
-
+            print(f"w: {w}\nx: {x}\ny: {y}\nz: {z}")
         self.on_position(x, y, z, w)
         for callback in self._position_callbacks.values():
             callback(x, y, z, w)
