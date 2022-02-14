@@ -505,14 +505,18 @@ class Wand(Peripheral, DefaultDelegate):
         # w = -1 * numpy.int16(numpy.uint16(int.from_bytes(data[4:6], byteorder='little')))
         # z = numpy.int16(numpy.uint16(int.from_bytes(data[6:8], byteorder='little')))
         # TODO: Confirm this section
-        w = numpy.uint16(int.from_bytes(data[0:2], byteorder='little'))
-        x = numpy.uint16(int.from_bytes(data[2:4], byteorder='little'))
-        y = numpy.uint16(int.from_bytes(data[4:6], byteorder='little'))
-        z = numpy.uint16(int.from_bytes(data[6:8], byteorder='little'))
+        # x = numpy.uint16(int.from_bytes(data[0:2], byteorder='little'))
+        # y = numpy.uint16(int.from_bytes(data[2:4], byteorder='little'))
+        # z = numpy.uint16(int.from_bytes(data[4:6], byteorder='little'))
+        # w = numpy.uint16(int.from_bytes(data[6:8], byteorder='little'))
+        w = numpy.int16(numpy.uint16(int.from_bytes(data[0:2], byteorder='little')))
+        x = numpy.int16(numpy.uint16(int.from_bytes(data[2:4], byteorder='little')))
+        y = numpy.int16(numpy.uint16(int.from_bytes(data[4:6], byteorder='little')))
+        z = numpy.int16(numpy.uint16(int.from_bytes(data[6:8], byteorder='little')))
+        w = w / 1024
         x = x / 1024
         y = y / 1024
         z = z / 1024
-        w = w / 1024
         if self.debug:
             print(f"w: {w}\nx: {x}\ny: {y}\nz: {z}")
         self.on_position(x, y, z, w)
@@ -523,10 +527,10 @@ class Wand(Peripheral, DefaultDelegate):
         """Function called on position notification
 
         Arguments:
-            x {int} -- X position of wand (Between -1000 and 1000)
-            y {int} -- Y position of wand (Between -1000 and 1000)
-            pitch {int} -- Pitch of wand (Between -1000 and 1000)
-            roll {int} -- Roll of wand (Between -1000 and 1000)
+            w {int} -- Quaternion of wand
+            x {int} -- Quaternion of wand
+            y {int} -- Quaternion of wand
+            z {int} -- Quaternion of wand
         """
         pass
 

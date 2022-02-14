@@ -23,8 +23,9 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import classification_report
 from scipy.stats import mode
+from pyquaternion import Quaternion
 
-Quaternion = Tuple[float, float, float, float]
+# Quaternion = Tuple[float, float, float, float]
 
 LABELS = {
     1: 'AGUAMENTI',
@@ -42,7 +43,11 @@ LABELS = {
 }
 
 def make_quat(x: pd.Series):
-    return np.array((x["x"], x["y"], x["z"], x["w"]))
+    # print(f"in: {x}")
+    # a = np.array([x["x"], x["y"], x["z"], x["w"]])
+    # return a / np.linalg.norm(a)
+    # print(f"out: {Quaternion(a).unit}")
+    return Quaternion(x["w"], x["x"], x["y"], x["z"]).unit
 
 def angle_distance(x, y):
     """
@@ -56,8 +61,9 @@ def angle_distance(x, y):
 def dtw_distance(
     ts_a,
     ts_b,
-    d = lambda x, y: math.dist(x, y),
-    # d: Callable=angle_distance,
+    d = lambda x, y: abs(x - y),
+    # d = lambda x, y: math.dist(x, y),
+    # d: Callable = lambda x, y: Quaternion.distance(x, y),
     max_warping_window: int=100,
 ) -> float:
     """Returns the DTW similarity distance between two 2-D
@@ -133,7 +139,7 @@ def distance_matrix(x, y, subsample_step=1):
                 dm_count += 1
         
         # Convert to squareform
-        dm = squareform(dm)
+        dm = distance.squareform(dm)
         return dm
     
     # Compute full distance matrix of dtw distnces between x and y
@@ -191,7 +197,6 @@ def predict(
 def make_euler(x: pd.Series):
     r = R.from_quat(x["q0"])
     euler = r.as_euler('zyx', degrees=True)
-    # print(f"euler: {euler}")
     return euler
 
 def learn_spell(train_spells: Dict[str, str], test_spells: Dict[str, str]):
@@ -200,6 +205,10 @@ def learn_spell(train_spells: Dict[str, str], test_spells: Dict[str, str]):
         train_df = pd.read_csv(train_spell_file, index_col="time")
         train_df["q0"] = train_df.apply(func=make_quat, axis=1)
         train_array = train_df["q0"].to_numpy()
+        # Calculate distance of every point to center point
+        train_center = train_array[len(train_array) // 2]
+        train_array = np.array([Quaternion.distance(x, train_center)
+                                for x in train_array])
         train_array = train_array.reshape((1, train_array.shape[0]))
         spell_results[train_spell] = {}
         for test_spell, test_spell_file in test_spells.items():
@@ -207,6 +216,10 @@ def learn_spell(train_spells: Dict[str, str], test_spells: Dict[str, str]):
             # Add distance to dataframe
             test_df["q0"] = test_df.apply(func=make_quat, axis=1)
             test_array = test_df["q0"].to_numpy()
+            # Calculate distance of every point to center point
+            test_center = test_array[len(test_array) // 2]
+            test_array = np.array([Quaternion.distance(x, test_center)
+                                   for x in test_array])
             test_array = test_array.reshape((1, test_array.shape[0]))
             dist_matrix = distance_matrix(train_array, test_array)
             spell_results[train_spell][test_spell] = dist_matrix[0][0]

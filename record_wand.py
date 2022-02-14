@@ -63,7 +63,7 @@ class RecordWand(Wand):
             # euler = make_euler(np.array((y, x, w, z)))
 
     def on_button(self, pressed):
-        self.reset_position()
+        # self.reset_position()
         print("on_button: {}".format(pressed))
         print("self pressed: {}".format(self.pressed))
         # When button is released
