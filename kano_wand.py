@@ -519,11 +519,11 @@ class Wand(Peripheral, DefaultDelegate):
         z = z / 1024
         if self.debug:
             print(f"w: {w}\nx: {x}\ny: {y}\nz: {z}")
-        self.on_position(x, y, z, w)
+        self.on_position(w, x, y, z)
         for callback in self._position_callbacks.values():
-            callback(x, y, z, w)
+            callback(w, x, y, z)
 
-    def on_position(self, x, y, z, w):
+    def on_position(self, w, x, y, z):
         """Function called on position notification
 
         Arguments:

@@ -26,7 +26,7 @@ def make_euler(q):
     r = R.from_quat(q_norm)
     euler = r.as_euler('zyx', degrees=True)
     # euler = r.as_euler('xzy', degrees=True)
-    print(f"roll: {euler[0]}\tyaw: {euler[1]}\tpitch: {euler[2]}")
+    print(f"roll: {euler[0]:.2f}\tyaw: {euler[1]:.2f}\tpitch: {euler[2]:.2f}")
     return euler
 
 class RecordWand(Wand):
@@ -43,16 +43,16 @@ class RecordWand(Wand):
         }
         self.spells = iter(SPELLS)
         self.current_spell = next(self.spells)
-        print(f"press button and perform spell {self.current_spell}")
-        print("release button when finished")
+        print(f"init: press button and perform spell {self.current_spell}")
+        print("init: release button when finished")
 
     def post_connect(self):
         self.subscribe_button()
         self.subscribe_position()
 
-    def on_position(self, x, y, z, w):
+    def on_position(self, w, x, y, z):
         if self.pressed:
-            euler = make_euler(np.array((y, x, w, z)))
+            euler = make_euler(np.array((w, x, y, z)))
             # euler = make_euler(np.array((x, y, z, w)))
             # print("saving position: {} {} {} {}".format(x, y, z, w))
             self.data["time"].append(time.time())
@@ -63,7 +63,7 @@ class RecordWand(Wand):
             # euler = make_euler(np.array((y, x, w, z)))
 
     def on_button(self, pressed):
-        # self.reset_position()
+        self.reset_position()
         print("on_button: {}".format(pressed))
         print("self pressed: {}".format(self.pressed))
         # When button is released
@@ -151,10 +151,7 @@ class WandScanner(DefaultDelegate):
                 self.kano_device = device
                 if self.debug:
                     print("found kano wand")
-            if self.kano_device is not None:
-                if self.debug:
-                    print("creating sphero wand")
-                self.wand = RecordWand(device,
+                self.wand = RecordWand(self.kano_device,
                                        debug=self.debug)
 
 
