@@ -34,7 +34,7 @@ class _SENSOR(Enum):
     TEMP_CHAR = '64A70014-F691-4B93-A6F4-0968F5B648F8'
     QUATERNIONS_CHAR = '64A70002-F691-4B93-A6F4-0968F5B648F8'
     # RAW_CHAR = '64A7000A-F691-4B93-A6F4-0968F5B648F8'
-    # MOTION_CHAR = '64A7000C-F691-4B93-A6F4-0968F5B648F8'
+    MOTION_CHAR = '64A7000C-F691-4B93-A6F4-0968F5B648F8'
     MAGN_CALIBRATE_CHAR = '64A70021-F691-4B93-A6F4-0968F5B648F8'
     QUATERNIONS_RESET_CHAR = '64A70004-F691-4B93-A6F4-0968F5B648F8'
 
@@ -72,6 +72,8 @@ class Wand(Peripheral, DefaultDelegate):
 
         # Notification stuff
         self.connected = False
+        self._orientation_callbacks = {}
+        self._orientation_subscribed = False
         self._position_callbacks = {}
         self._position_subscribed = False
         self._button_callbacks = {}
@@ -81,6 +83,8 @@ class Wand(Peripheral, DefaultDelegate):
         self._battery_callbacks = {}
         self._battery_subscribed = False
         self._notification_thread = None
+        # TODO: Is this just a unique number?
+        self._orientation_notification_handle = 42
         self._position_notification_handle = 41
         self._button_notification_handle = 33
         self._temp_notification_handle = 56
@@ -111,6 +115,7 @@ class Wand(Peripheral, DefaultDelegate):
     def disconnect(self):
         super().disconnect()
         self.connected = False
+        self._orientation_subscribed = False
         self._position_subscribed = False
         self._button_subscribed = False
         self._temperature_subscribed = False
@@ -282,6 +287,10 @@ class Wand(Peripheral, DefaultDelegate):
             id = uuid.uuid4()
             self._position_callbacks[id] = callback
             self.subscribe_position()
+        elif event == "orientation":
+            id = uuid.uuid4()
+            self._orientation_callbacks[id] = callback
+            self.subscribe_orientation()
         elif event == "button":
             id = uuid.uuid4()
             self._button_callbacks[id] = callback
@@ -314,6 +323,11 @@ class Wand(Peripheral, DefaultDelegate):
             self._position_callbacks.pop(uuid)
             if len(self._position_callbacks.values()) == 0:
                 self.unsubscribe_position(continue_notifications=continue_notifications)
+        elif self._orientation_callbacks.get(uuid) != None:
+            removed = True
+            self._orientation_callbacks.pop(uuid)
+            if len(self._orientation_callbacks.values()) == 0:
+                self.unsubscribe_orientation(continue_notifications=continue_notifications)
         elif self._button_callbacks.get(uuid) != None:
             removed = True
             self._button_callbacks.pop(uuid)
@@ -347,7 +361,7 @@ class Wand(Peripheral, DefaultDelegate):
         self._position_subscribed = True
         with self._lock:
             if not hasattr(self, "_position_handle"):
-                handle = self._sensor_service.getCharacteristics(_SENSOR.QUATERNIONS_CHAR.value)[0]
+                handle = self._sensor_service.getCharacteristics(_SENSOR.MOTION_CHAR.value)[0]
                 self._position_handle = handle.getHandle()
 
             self.writeCharacteristic(self._position_handle + 1, bytes([1, 0]))
@@ -365,10 +379,42 @@ class Wand(Peripheral, DefaultDelegate):
         self._position_subscribed = continue_notifications
         with self._lock:
             if not hasattr(self, "_position_handle"):
-                handle = self._sensor_service.getCharacteristics(_SENSOR.QUATERNIONS_CHAR.value)[0]
+                handle = self._sensor_service.getCharacteristics(_SENSOR.MOTION_CHAR.value)[0]
                 self._position_handle = handle.getHandle()
 
             self.writeCharacteristic(self._position_handle + 1, bytes([0, 0]))
+
+    def subscribe_orientation(self):
+        """Subscribe to orientation notifications and start thread if necessary
+        """
+        if self.debug:
+            print("Subscribing to orientation notification")
+
+        self._orientation_subscribed = True
+        with self._lock:
+            if not hasattr(self, "_orientation_handle"):
+                handle = self._sensor_service.getCharacteristics(_SENSOR.QUATERNIONS_CHAR.value)[0]
+                self._orientation_handle = handle.getHandle()
+
+            self.writeCharacteristic(self._orientation_handle + 1, bytes([1, 0]))
+        self._start_notification_thread()
+
+    def unsubscribe_orientation(self, continue_notifications=False):
+        """Unsubscribe to orientation notifications
+
+        Keyword Arguments:
+            continue_notifications {bool} -- Keep notification thread running (default: {False})
+        """
+        if self.debug:
+            print("Unsubscribing from orientation notification")
+
+        self._orientation_subscribed = continue_notifications
+        with self._lock:
+            if not hasattr(self, "_orientation_handle"):
+                handle = self._sensor_service.getCharacteristics(_SENSOR.QUATERNIONS_CHAR.value)[0]
+                self._orientation_handle = handle.getHandle()
+
+            self.writeCharacteristic(self._orientation_handle + 1, bytes([0, 0]))
 
     def subscribe_button(self):
         """Subscribe to button notifications and start thread if necessary
@@ -481,6 +527,7 @@ class Wand(Peripheral, DefaultDelegate):
 
         while (self.connected and
             (self._position_subscribed or
+            self._orientation_subscribed or
             self._button_subscribed or
             self._temperature_subscribed or
             self._battery_subscribed)):
@@ -493,22 +540,12 @@ class Wand(Peripheral, DefaultDelegate):
         if self.debug:
             print("Notification thread stopped")
 
-    def _on_position(self, data):
-        """Private function for position notification
+    def _on_orientation(self, data):
+        """Private function for orientation notification
 
         Arguments:
             data {bytes} -- Data from device
         """
-        # I got part of this from Kano's node module and modified it
-        # y = numpy.int16(numpy.uint16(int.from_bytes(data[0:2], byteorder='little')))
-        # x = -1 * numpy.int16(numpy.uint16(int.from_bytes(data[2:4], byteorder='little')))
-        # w = -1 * numpy.int16(numpy.uint16(int.from_bytes(data[4:6], byteorder='little')))
-        # z = numpy.int16(numpy.uint16(int.from_bytes(data[6:8], byteorder='little')))
-        # TODO: Confirm this section
-        # x = numpy.uint16(int.from_bytes(data[0:2], byteorder='little'))
-        # y = numpy.uint16(int.from_bytes(data[2:4], byteorder='little'))
-        # z = numpy.uint16(int.from_bytes(data[4:6], byteorder='little'))
-        # w = numpy.uint16(int.from_bytes(data[6:8], byteorder='little'))
         w = numpy.int16(numpy.uint16(int.from_bytes(data[0:2], byteorder='little')))
         x = numpy.int16(numpy.uint16(int.from_bytes(data[2:4], byteorder='little')))
         y = numpy.int16(numpy.uint16(int.from_bytes(data[4:6], byteorder='little')))
@@ -519,6 +556,27 @@ class Wand(Peripheral, DefaultDelegate):
         z = z / 1024
         if self.debug:
             print(f"w: {w}\nx: {x}\ny: {y}\nz: {z}")
+        self.on_position(w, x, y, z)
+        for callback in self._position_callbacks.values():
+            callback(w, x, y, z)
+
+    def _on_position(self, data):
+        """Private function for position notification
+
+        Arguments:
+            data {bytes} -- Data from device
+        """
+        print(f"data: {data}")
+        w = numpy.int16(numpy.uint16(int.from_bytes(data[0:2], byteorder='little')))
+        x = numpy.int16(numpy.uint16(int.from_bytes(data[2:4], byteorder='little')))
+        y = numpy.int16(numpy.uint16(int.from_bytes(data[4:6], byteorder='little')))
+        z = numpy.int16(numpy.uint16(int.from_bytes(data[6:8], byteorder='little')))
+        w = w / 1024
+        x = x / 1024
+        y = y / 1024
+        z = z / 1024
+        # if self.debug:
+        print(f"w: {w}\nx: {x}\ny: {y}\nz: {z}")
         self.on_position(w, x, y, z)
         for callback in self._position_callbacks.values():
             callback(w, x, y, z)
