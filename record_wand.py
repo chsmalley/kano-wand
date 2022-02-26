@@ -1,4 +1,5 @@
 import sys
+import os
 from .kano_wand import Wand
 from bluepy.btle import DefaultDelegate, Scanner
 import time
@@ -25,7 +26,6 @@ def make_euler(q):
     q_norm = q / np.linalg.norm(q)
     r = R.from_quat(q_norm)
     euler = r.as_euler('zyx', degrees=True)
-    # euler = r.as_euler('xzy', degrees=True)
     print(f"roll: {euler[0]:.2f}\tyaw: {euler[1]:.2f}\tpitch: {euler[2]:.2f}")
     return euler
 
@@ -33,34 +33,71 @@ class RecordWand(Wand):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.pressed = False
+        self.pos_save_dir = os.path.expanduser("~/wand_position_data")
+        self.quat_save_dir = os.path.expanduser("~/wand_quaternion_data")
         self.positions = []
-        self.data = {
+        self.quat_data = {
             "time": [],
             "x": [],
             "y": [],
             "z": [],
             "w": []
         }
+        self.pos_data = {
+            "mag_x": [],
+            "mag_y": [],
+            "mag_z": [],
+            "acc_x": [],
+            "acc_y": [],
+            "acc_z": [],
+            "pitch": [],
+            "roll": [],
+            "yaw": [],
+            "time": []
+        }
         self.spells = iter(SPELLS)
         self.current_spell = next(self.spells)
+        time.sleep(10)
         print(f"init: press button and perform spell {self.current_spell}")
         print("init: release button when finished")
 
     def post_connect(self):
         self.subscribe_button()
         self.subscribe_position()
+        self.subscribe_orientation()
 
-    def on_position(self, w, x, y, z):
+    def on_orientation(self, w, x, y, z):
         if self.pressed:
-            euler = make_euler(np.array((w, x, y, z)))
-            # euler = make_euler(np.array((x, y, z, w)))
-            # print("saving position: {} {} {} {}".format(x, y, z, w))
-            self.data["time"].append(time.time())
-            self.data["x"].append(x)
-            self.data["y"].append(y)
-            self.data["z"].append(z)
-            self.data["w"].append(w)
-            # euler = make_euler(np.array((y, x, w, z)))
+            # euler = make_euler(np.array((w, x, y, z)))
+            self.quat_data["time"].append(time.time())
+            self.quat_data["x"].append(x)
+            self.quat_data["y"].append(y)
+            self.quat_data["z"].append(z)
+            self.quat_data["w"].append(w)
+
+    def on_position(
+        self,
+        mag_x,
+        mag_y,
+        mag_z,
+        acc_x,
+        acc_y,
+        acc_z,
+        pitch,
+        roll,
+        yaw
+    ):
+        if self.pressed:
+            self.pos_data["mag_x"] = mag_x
+            self.pos_data["mag_y"] = mag_y
+            self.pos_data["mag_z"] = mag_z
+            self.pos_data["acc_x"] = acc_x
+            self.pos_data["acc_y"] = acc_y
+            self.pos_data["acc_z"] = acc_z
+            self.pos_data["pitch"] = pitch
+            self.pos_data["roll,"] = roll
+            self.pos_data["yaw"] = yaw
+            self.pos_data["time"].append(time.time())
 
     def on_button(self, pressed):
         self.reset_position()
@@ -69,19 +106,26 @@ class RecordWand(Wand):
         # When button is released
         if self.pressed and not pressed:
             # Save data from previous spell 
-            pd.DataFrame.from_dict(
-                self.data,
-                orient='index'
-            ).transpose().to_csv(self.current_spell + ".csv",
-                                index=False)
+            if self.quat_data["time"]:
+                pd.DataFrame.from_dict(
+                    self.quat_data,
+                    orient='index'
+                ).transpose().to_csv(
+                    os.path.join(self.quat_save_dir, self.current_spell + "_quat.csv"),
+                    index=False)
+            if self.pos_data["time"]:
+                pd.DataFrame.from_dict(
+                    self.pos_data,
+                    orient='index'
+                ).transpose().to_csv(
+                    os.path.join(self.pos_save_dir, self.current_spell + "_pos.csv"),
+                    index=False)
 
             # Tell user which spell to perform next
             self.current_spell = next(self.spells)
-            print(f"current pressed status: {self.pressed}")
             print(f"press button and perform spell {self.current_spell}")
             print("release button when finished")
         self.pressed = pressed
-        print(f"slef pressed after: {self.pressed}")
 
     # def post_disconnect(self):
     #     pd.DataFrame.from_dict(self.data,
@@ -129,11 +173,9 @@ class WandScanner(DefaultDelegate):
             print("Scanning for {} seconds...".format(timeout))
 
         self._scanner.scan(timeout)
-        print("after scan")
         if connect:
-            print("before connect")
             self.wand.connect()
-            print("after connect")
+            print("wand connected")
         return self.wand
 
     def handleDiscovery(self, device, isNewDev, isNewData):

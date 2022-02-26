@@ -84,8 +84,8 @@ class Wand(Peripheral, DefaultDelegate):
         self._battery_subscribed = False
         self._notification_thread = None
         # TODO: Is this just a unique number?
-        self._orientation_notification_handle = 42
-        self._position_notification_handle = 41
+        self._orientation_notification_handle = 41
+        self._position_notification_handle = 52
         self._button_notification_handle = 33
         self._temp_notification_handle = 56
         self._battery_notification_handle = 23
@@ -546,6 +546,8 @@ class Wand(Peripheral, DefaultDelegate):
         Arguments:
             data {bytes} -- Data from device
         """
+        print("on_orienation")
+        print(f"data: {data.hex()}")
         w = numpy.int16(numpy.uint16(int.from_bytes(data[0:2], byteorder='little')))
         x = numpy.int16(numpy.uint16(int.from_bytes(data[2:4], byteorder='little')))
         y = numpy.int16(numpy.uint16(int.from_bytes(data[4:6], byteorder='little')))
@@ -556,32 +558,11 @@ class Wand(Peripheral, DefaultDelegate):
         z = z / 1024
         if self.debug:
             print(f"w: {w}\nx: {x}\ny: {y}\nz: {z}")
-        self.on_position(w, x, y, z)
+        self.on_orientation(w, x, y, z)
         for callback in self._position_callbacks.values():
             callback(w, x, y, z)
 
-    def _on_position(self, data):
-        """Private function for position notification
-
-        Arguments:
-            data {bytes} -- Data from device
-        """
-        print(f"data: {data}")
-        w = numpy.int16(numpy.uint16(int.from_bytes(data[0:2], byteorder='little')))
-        x = numpy.int16(numpy.uint16(int.from_bytes(data[2:4], byteorder='little')))
-        y = numpy.int16(numpy.uint16(int.from_bytes(data[4:6], byteorder='little')))
-        z = numpy.int16(numpy.uint16(int.from_bytes(data[6:8], byteorder='little')))
-        w = w / 1024
-        x = x / 1024
-        y = y / 1024
-        z = z / 1024
-        # if self.debug:
-        print(f"w: {w}\nx: {x}\ny: {y}\nz: {z}")
-        self.on_position(w, x, y, z)
-        for callback in self._position_callbacks.values():
-            callback(w, x, y, z)
-
-    def on_position(self, w, x, y, z):
+    def on_orientation(self, w, x, y, z):
         """Function called on position notification
 
         Arguments:
@@ -589,6 +570,59 @@ class Wand(Peripheral, DefaultDelegate):
             x {int} -- Quaternion of wand
             y {int} -- Quaternion of wand
             z {int} -- Quaternion of wand
+        """
+        pass
+
+    def _on_position(self, data):
+        """Private function for position notification
+
+        Arguments:
+            data {bytes} -- Data from device
+        """
+        print("on_position")
+        print(f"data: {data.hex()}")
+        mag_x = numpy.int16(numpy.uint16(int.from_bytes(data[0:4], byteorder='little')))
+        mag_y = numpy.int16(numpy.uint16(int.from_bytes(data[4:8], byteorder='little')))
+        mag_z = numpy.int16(numpy.uint16(int.from_bytes(data[8:12], byteorder='little')))
+        acc_x = numpy.int16(numpy.uint16(int.from_bytes(data[12:16], byteorder='little')))
+        acc_y = numpy.int16(numpy.uint16(int.from_bytes(data[16:20], byteorder='little')))
+        acc_z = numpy.int16(numpy.uint16(int.from_bytes(data[20:24], byteorder='little')))
+        pitch = numpy.int16(numpy.uint16(int.from_bytes(data[24:28], byteorder='little')))
+        roll = numpy.int16(numpy.uint16(int.from_bytes(data[28:32], byteorder='little')))
+        yaw = numpy.int16(numpy.uint16(int.from_bytes(data[32:36], byteorder='little')))
+        # if self.debug:
+        print(f"{mag_x}, {mag_y}, {mag_z}")
+        print(f"{acc_x}, {acc_y}, {acc_z}")
+        print(f"{pitch}, {roll}, {yaw}")
+        self.on_position(mag_x, mag_y, mag_z, acc_x, acc_y, acc_z, pitch, roll, yaw)
+        for callback in self._position_callbacks.values():
+            callback(mag_x, mag_y, mag_z, acc_x, acc_y, acc_z, pitch, roll, yaw)
+
+    def on_position(
+        self,
+        mag_x,
+        mag_y,
+        mag_z,
+        acc_x,
+        acc_y,
+        acc_z,
+        pitch,
+        roll,
+        yaw
+    ):
+        """Function called on position notification
+
+            
+        Arguments:
+            mag_x
+            mag_y
+            mag_z
+            acc_x
+            acc_y
+            acc_z
+            pitch
+            roll 
+            yaw
         """
         pass
 
@@ -676,6 +710,8 @@ class Wand(Peripheral, DefaultDelegate):
         """
         if cHandle == self._position_notification_handle:
             self._on_position(data)
+        elif cHandle == self._orientation_notification_handle:
+            self._on_orientation(data)
         elif cHandle == self._button_notification_handle:
             self._on_button(data)
         elif cHandle == self._temp_notification_handle:
