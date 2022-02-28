@@ -283,6 +283,7 @@ class Wand(Peripheral, DefaultDelegate):
             print("Adding callback for {} notification...".format(event))
 
         id = None
+        print(f"event: {event}")
         if event == "position":
             id = uuid.uuid4()
             self._position_callbacks[id] = callback
@@ -389,15 +390,19 @@ class Wand(Peripheral, DefaultDelegate):
         """
         if self.debug:
             print("Subscribing to orientation notification")
-
+        print("subscribe orientation")
         self._orientation_subscribed = True
         with self._lock:
+            print("subscribe orientation: with lock")
             if not hasattr(self, "_orientation_handle"):
                 handle = self._sensor_service.getCharacteristics(_SENSOR.QUATERNIONS_CHAR.value)[0]
                 self._orientation_handle = handle.getHandle()
+            print("subscribe orientation: after set attribute")
 
             self.writeCharacteristic(self._orientation_handle + 1, bytes([1, 0]))
+            print("subscribe orientation: after write characteristics")
         self._start_notification_thread()
+        print("subscribe orientation: after start notification thread")
 
     def unsubscribe_orientation(self, continue_notifications=False):
         """Unsubscribe to orientation notifications
@@ -527,10 +532,10 @@ class Wand(Peripheral, DefaultDelegate):
 
         while (self.connected and
             (self._position_subscribed or
-            self._orientation_subscribed or
-            self._button_subscribed or
-            self._temperature_subscribed or
-            self._battery_subscribed)):
+             self._orientation_subscribed or
+             self._button_subscribed or
+             self._temperature_subscribed or
+             self._battery_subscribed)):
             try:
                 if super().waitForNotifications(1):
                     continue
@@ -559,7 +564,7 @@ class Wand(Peripheral, DefaultDelegate):
         if self.debug:
             print(f"w: {w}\nx: {x}\ny: {y}\nz: {z}")
         self.on_orientation(w, x, y, z)
-        for callback in self._position_callbacks.values():
+        for callback in self._orientation_callbacks.values():
             callback(w, x, y, z)
 
     def on_orientation(self, w, x, y, z):
@@ -579,8 +584,8 @@ class Wand(Peripheral, DefaultDelegate):
         Arguments:
             data {bytes} -- Data from device
         """
-        print("\non_position")
-        print(f"data: {data.hex()}")
+        # print("\non_position")
+        # print(f"data: {data.hex()}")
         # mag_x = int.from_bytes(data[0:2], byteorder='little')
         # mag_y = int.from_bytes(data[2:4], byteorder='little')
         # mag_z = int.from_bytes(data[4:6], byteorder='little')
@@ -600,9 +605,9 @@ class Wand(Peripheral, DefaultDelegate):
         pitch = numpy.int16(numpy.uint16(int.from_bytes(data[14:16], byteorder='little')))
         roll = numpy.int16(numpy.uint16(int.from_bytes(data[16:18], byteorder='little')))
         # if self.debug:
-        print(f"{mag_x}\t{mag_y}\t{mag_z}")
-        print(f"{acc_x}\t{acc_y}\t{acc_z}")
-        print(f"{yaw}\t{pitch}\t{roll}")
+        # print(f"{mag_x}\t{mag_y}\t{mag_z}")
+        # print(f"{acc_x}\t{acc_y}\t{acc_z}")
+        # print(f"{yaw}\t{pitch}\t{roll}")
         self.on_position(mag_x, mag_y, mag_z, acc_x, acc_y, acc_z, pitch, roll, yaw)
         for callback in self._position_callbacks.values():
             callback(mag_x, mag_y, mag_z, acc_x, acc_y, acc_z, pitch, roll, yaw)

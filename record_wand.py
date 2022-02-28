@@ -1,5 +1,6 @@
 import sys
 import os
+import shutil
 from .kano_wand import Wand
 from bluepy.btle import DefaultDelegate, Scanner
 import time
@@ -35,6 +36,12 @@ class RecordWand(Wand):
         self.pressed = False
         self.pos_save_dir = os.path.expanduser("~/wand_position_data")
         self.quat_save_dir = os.path.expanduser("~/wand_quaternion_data")
+        if os.path.exists(self.pos_save_dir) and os.path.isdir(self.pos_save_dir):
+           shutil.rmtree(self.pos_save_dir)
+        os.mkdir(self.pos_save_dir)
+        if os.path.exists(self.quat_save_dir) and os.path.isdir(self.quat_save_dir):
+           shutil.rmtree(self.quat_save_dir)
+        os.mkdir(self.quat_save_dir)
         self.positions = []
         self.quat_data = {
             "time": [],
@@ -62,9 +69,13 @@ class RecordWand(Wand):
         print("init: release button when finished")
 
     def post_connect(self):
+        print("Post connect")
         self.subscribe_button()
+        print("subscribed button")
         self.subscribe_position()
-        self.subscribe_orientation()
+        print("subscribed position")
+        # self.subscribe_orientation()
+        print("Post connect complete")
 
     def on_orientation(self, w, x, y, z):
         if self.pressed:
@@ -88,38 +99,64 @@ class RecordWand(Wand):
         yaw
     ):
         if self.pressed:
-            self.pos_data["mag_x"] = mag_x
-            self.pos_data["mag_y"] = mag_y
-            self.pos_data["mag_z"] = mag_z
-            self.pos_data["acc_x"] = acc_x
-            self.pos_data["acc_y"] = acc_y
-            self.pos_data["acc_z"] = acc_z
-            self.pos_data["pitch"] = pitch
-            self.pos_data["roll,"] = roll
-            self.pos_data["yaw"] = yaw
+            # print("on position and pressed")
+            # print(f"{mag_x}\t{mag_y}\t{mag_z}")
+            # print(f"{acc_x}\t{acc_y}\t{acc_z}")
+            # print(f"{yaw}\t{pitch}\t{roll}")
+            self.pos_data["mag_x"].append(mag_x)
+            self.pos_data["mag_y"].append(mag_y)
+            self.pos_data["mag_z"].append(mag_z)
+            self.pos_data["acc_x"].append(acc_x)
+            self.pos_data["acc_y"].append(acc_y)
+            self.pos_data["acc_z"].append(acc_z)
+            self.pos_data["pitch"].append(pitch)
+            self.pos_data["roll"].append(roll)
+            self.pos_data["yaw"].append(yaw)
             self.pos_data["time"].append(time.time())
 
     def on_button(self, pressed):
-        self.reset_position()
+        # self.reset_position()
         print("on_button: {}".format(pressed))
         print("self pressed: {}".format(self.pressed))
         # When button is released
         if self.pressed and not pressed:
+            print("saving data")
             # Save data from previous spell 
-            if self.quat_data["time"]:
-                pd.DataFrame.from_dict(
-                    self.quat_data,
-                    orient='index'
-                ).transpose().to_csv(
-                    os.path.join(self.quat_save_dir, self.current_spell + "_quat.csv"),
-                    index=False)
+            # if self.quat_data["time"]:
+            #     pd.DataFrame.from_dict(
+            #         self.quat_data,
+            #         orient='index'
+            #     ).transpose().to_csv(
+            #         os.path.join(self.quat_save_dir, self.current_spell + "_quat.csv"),
+            #         index=False)
+            #     self.quat_data = {
+            #         "time": [],
+            #         "x": [],
+            #         "y": [],
+            #         "z": [],
+            #         "w": []
+            #     }
             if self.pos_data["time"]:
+                # print(f"pos data: {self.pos_data}")
                 pd.DataFrame.from_dict(
                     self.pos_data,
                     orient='index'
                 ).transpose().to_csv(
                     os.path.join(self.pos_save_dir, self.current_spell + "_pos.csv"),
                     index=False)
+                print("saved data")
+                self.pos_data = {
+                    "mag_x": [],
+                    "mag_y": [],
+                    "mag_z": [],
+                    "acc_x": [],
+                    "acc_y": [],
+                    "acc_z": [],
+                    "pitch": [],
+                    "roll": [],
+                    "yaw": [],
+                    "time": []
+                }
 
             # Tell user which spell to perform next
             self.current_spell = next(self.spells)
