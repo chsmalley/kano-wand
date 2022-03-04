@@ -63,10 +63,6 @@ class RecordWand(Wand):
             "time": []
         }
         self.spells = iter(SPELLS)
-        self.current_spell = next(self.spells)
-        time.sleep(10)
-        print(f"init: press button and perform spell {self.current_spell}")
-        print("init: release button when finished")
 
     def post_connect(self):
         print("Post connect")
@@ -75,6 +71,9 @@ class RecordWand(Wand):
         self.subscribe_position()
         print("subscribed position")
         # self.subscribe_orientation()
+        self.current_spell = next(self.spells)
+        print(f"init: press button and perform spell {self.current_spell}")
+        print("init: release button when finished")
         print("Post connect complete")
 
     def on_orientation(self, w, x, y, z):
@@ -99,10 +98,10 @@ class RecordWand(Wand):
         yaw
     ):
         if self.pressed:
-            # print("on position and pressed")
-            # print(f"{mag_x}\t{mag_y}\t{mag_z}")
-            # print(f"{acc_x}\t{acc_y}\t{acc_z}")
-            # print(f"{yaw}\t{pitch}\t{roll}")
+            print("on position and pressed")
+            print(f"{mag_x}\t{mag_y}\t{mag_z}")
+            print(f"{acc_x}\t{acc_y}\t{acc_z}")
+            print(f"{yaw}\t{pitch}\t{roll}")
             self.pos_data["mag_x"].append(mag_x)
             self.pos_data["mag_y"].append(mag_y)
             self.pos_data["mag_z"].append(mag_z)
@@ -242,11 +241,9 @@ if __name__ == '__main__':
     try:
         # While we don't have any wands
         while wand is None:
-            print("Scanning...")
             # Scan for wands and automatically connect
             wand = shop.scan(connect=True)
-            print("after scan")
-        print("out of while loop")
     # Detect keyboard interrupt and disconnect wands
     except KeyboardInterrupt:
         wand.disconnect()
+    
