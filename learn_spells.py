@@ -203,6 +203,34 @@ def learn_spell(train_spells: Dict[str, str], test_spells: Dict[str, str]):
     spell_results = {}
     for train_spell, train_spell_file in train_spells.items():
         train_df = pd.read_csv(train_spell_file, index_col="time")
+        train_array = train_df["acc_x"].to_numpy()
+        train_array = train_array.reshape((1, train_array.shape[0]))
+        spell_results[train_spell] = {}
+        for test_spell, test_spell_file in test_spells.items():
+            test_df = pd.read_csv(test_spell_file, index_col="time")
+            # Add distance to dataframe
+            test_array = test_df["acc_x"].to_numpy()
+            test_array = test_array.reshape((1, test_array.shape[0]))
+            dist_matrix = distance_matrix(train_array, test_array)
+            spell_results[train_spell][test_spell] = dist_matrix[0][0]
+            # a, b = predict(dist_matrix, test_array, np.array([1]))
+            # print(f"predict results: {a} {b}")
+    print(json.dumps(spell_results, indent=4))
+    # Test dtw
+    # dist = DTW(train_df["q0"], test_df["q0"])
+    # dist = DTW(np.array([1] * 100), np.array([1] * 100))
+    # print(f"dtw dist: {dist}")
+    # df["dist"] = df.apply()
+    # fig = df.plot(title=filename)
+    # fig = df.plot(title=filename).get_figure()
+    # fig.savefig("tmp.png")
+    # fig.show()
+    # df.plot(x="time", )
+
+def learn_spell_quaternion(train_spells: Dict[str, str], test_spells: Dict[str, str]):
+    spell_results = {}
+    for train_spell, train_spell_file in train_spells.items():
+        train_df = pd.read_csv(train_spell_file, index_col="time")
         train_df["q0"] = train_df.apply(func=make_quat, axis=1)
         train_array = train_df["q0"].to_numpy()
         # Calculate distance of every point to center point
