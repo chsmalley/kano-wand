@@ -24,6 +24,8 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import classification_report
 from scipy.stats import mode
 from pyquaternion import Quaternion
+import plotly.express as px
+import plotly.graph_objects as go
 
 # Quaternion = Tuple[float, float, float, float]
 
@@ -42,6 +44,14 @@ LABELS = {
     12: 'WINGARDIUM_LEVIOSA'
 }
 
+
+class Acceleration:
+    def __init__(self, x, y, z):
+        self.x = x
+        self.y = y
+        self.z = z
+
+
 def make_quat(x: pd.Series):
     # print(f"in: {x}")
     # a = np.array([x["x"], x["y"], x["z"], x["w"]])
@@ -58,13 +68,18 @@ def angle_distance(x, y):
         theta = math.pi - theta
     return theta
 
+def accel_distance(a, b):
+    # return abs(a.x - b.x) + abs(a.y - b.y) + abs(a.z - b.z)
+    return (a.x - b.x)**2 + (a.y - b.y)**2 + (a.z - b.z)**2
+
 def dtw_distance(
     ts_a,
     ts_b,
-    d = lambda x, y: abs(x - y),
+    d = accel_distance,
+    # d = lambda x, y: abs(x - y),
     # d = lambda x, y: math.dist(x, y),
     # d: Callable = lambda x, y: Quaternion.distance(x, y),
-    max_warping_window: int=100,
+    max_warping_window: int=10,
 ) -> float:
     """Returns the DTW similarity distance between two 2-D
     timeseries numpy arrays.
@@ -203,29 +218,51 @@ def learn_spell(train_spells: Dict[str, str], test_spells: Dict[str, str]):
     spell_results = {}
     for train_spell, train_spell_file in train_spells.items():
         train_df = pd.read_csv(train_spell_file, index_col="time")
-        train_array = train_df["acc_x"].to_numpy()
+        train_df["time_from_start"] = [t - list(train_df.index)[0]
+                                       for t in list(train_df.index)]
+        acc_x = train_df["acc_x"].to_numpy()
+        acc_y = train_df["acc_y"].to_numpy()
+        acc_z = train_df["acc_z"].to_numpy()
+        train_array = np.array([Acceleration(x, y, z) for x, y, z in zip(acc_x, acc_y, acc_z)])
         train_array = train_array.reshape((1, train_array.shape[0]))
         spell_results[train_spell] = {}
         for test_spell, test_spell_file in test_spells.items():
             test_df = pd.read_csv(test_spell_file, index_col="time")
+            test_df["time_from_start"] = [t - list(test_df.index)[0]
+                                           for t in list(test_df.index)]
             # Add distance to dataframe
-            test_array = test_df["acc_x"].to_numpy()
+            acc_x = test_df["acc_x"].to_numpy()
+            acc_y = test_df["acc_y"].to_numpy()
+            acc_z = test_df["acc_z"].to_numpy()
+            test_array = np.array([Acceleration(x, y, z) for x, y, z in zip(acc_x, acc_y, acc_z)])
             test_array = test_array.reshape((1, test_array.shape[0]))
             dist_matrix = distance_matrix(train_array, test_array)
             spell_results[train_spell][test_spell] = dist_matrix[0][0]
             # a, b = predict(dist_matrix, test_array, np.array([1]))
             # print(f"predict results: {a} {b}")
+            # fig = px.line(train_df, x="time_from_start", y=["acc_x", "acc_y", "acc_z"], title=train_spell)
+            # fig.add_trace(go.Scatter(x=test_df["time_from_start"],
+            #                          y=test_df["acc_x"], name=f"acc_x {test_spell}"))
+            # fig.add_trace(go.Scatter(x=test_df["time_from_start"],
+            #                          y=test_df["acc_y"], name=f"acc_y {test_spell}"))
+            # fig.add_trace(go.Scatter(x=test_df["time_from_start"],
+            #                          y=test_df["acc_z"], name=f"acc_z {test_spell}"))
+            # fig.show()
     print(json.dumps(spell_results, indent=4))
+    for spell in spell_results.keys():
+        print(f"{spell}: {min(spell_results[spell], key=spell_results[spell].get)}")
     # Test dtw
     # dist = DTW(train_df["q0"], test_df["q0"])
     # dist = DTW(np.array([1] * 100), np.array([1] * 100))
     # print(f"dtw dist: {dist}")
+    # Plot some stuff
     # df["dist"] = df.apply()
     # fig = df.plot(title=filename)
     # fig = df.plot(title=filename).get_figure()
     # fig.savefig("tmp.png")
     # fig.show()
     # df.plot(x="time", )
+
 
 def learn_spell_quaternion(train_spells: Dict[str, str], test_spells: Dict[str, str]):
     spell_results = {}
