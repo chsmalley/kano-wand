@@ -26,6 +26,7 @@ from scipy.stats import mode
 from pyquaternion import Quaternion
 import plotly.express as px
 import plotly.graph_objects as go
+from .utils import df_mean_square_error
 
 # Quaternion = Tuple[float, float, float, float]
 
@@ -215,7 +216,22 @@ def make_euler(x: pd.Series):
     return euler
 
 def learn_spell(train_spells: Dict[str, str], test_spells: Dict[str, str]):
-    spell_results = {}
+    spell_results: Dict[str, Dict] = {}
+    for train_spell, train_spell_file in train_spells.items():
+        print(f"{train_spell}")
+        train_df = pd.read_csv(train_spell_file, index_col="time")
+        spell_results[train_spell] = {}
+        for test_spell, test_spell_file in test_spells.items():
+            print(f"{test_spell}")
+            test_df = pd.read_csv(test_spell_file, index_col="time")
+            spell_results[train_spell][test_spell] = \
+                df_mean_square_error(test_df, train_df, ["acc_x", "acc_y", "acc_z"])
+    print(json.dumps(spell_results, indent=4))
+    for spell in spell_results.keys():
+        print(f"{spell}: {min(spell_results[spell], key=spell_results[spell].get)}")
+
+def learn_spell_dtw(train_spells: Dict[str, str], test_spells: Dict[str, str]):
+    spell_results: Dict[str, Dict] = {}
     for train_spell, train_spell_file in train_spells.items():
         train_df = pd.read_csv(train_spell_file, index_col="time")
         train_df["time_from_start"] = [t - list(train_df.index)[0]
@@ -329,6 +345,7 @@ if __name__ == '__main__':
     train_dirname = sys.argv[1]
     test_dirname = sys.argv[2]
     train_spells = {}
+    print(train_dirname)
     for filename in glob.glob(train_dirname + "*.csv"):
         name = os.path.splitext(os.path.basename(filename))[0]
         train_spells[name] = filename
