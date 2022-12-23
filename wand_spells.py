@@ -1,31 +1,13 @@
 import sys
 import os
-import shutil
 from .kano_wand import Wand
 from bluepy.btle import DefaultDelegate, Scanner
 import time
 import pandas as pd
-from scipy.spatial.transform import Rotation as R
-import numpy as np
 from .utils import classify_spell
 from typing import List, Dict
-import json
 import glob
 
-SPELLS = [
-    "STUPEFY",
-    "WINGARDIUM_LEVIOSA",
-    "REDUCIO",
-    "FLIPENDO",
-    "EXPELLIARMUS",
-    "INCENDIO",
-    "LUMOS",
-    "LOCOMOTOR",
-    "ENGORGIO",
-    "AGUAMENTI",
-    "AVIS",
-    "REDUCTO"
-]
 
 class SpellWand(Wand):
     def __init__(self, *args, **kwargs):
@@ -44,12 +26,11 @@ class SpellWand(Wand):
             "yaw": [],
             "time": []
         }
-        self.spells = iter(SPELLS)
         spell_dirname = os.path.join(os.path.abspath(''), 'test_data', 'position_data')
         self.spell_data = {}
         for filename in glob.glob(spell_dirname + "*.csv"):
             name = os.path.splitext(os.path.basename(filename))[0]
-            self.spell_data[name] = filename
+            self.spell_data[name] = pd.read_csv(filename)
 
     def post_connect(self):
         print("Post connect")
@@ -57,9 +38,6 @@ class SpellWand(Wand):
         print("subscribed button")
         self.subscribe_position()
         print("subscribed position")
-        self.current_spell = next(self.spells)
-        print(f"init: press button and perform spell {self.current_spell}")
-        print("init: release button when finished")
         print("Post connect complete")
 
     def on_position(
@@ -97,14 +75,13 @@ class SpellWand(Wand):
         # When button is released
         if self.pressed and not pressed:
             if self.pos_data["time"]:
-                # print(f"pos data: {self.pos_data}")
                 df = pd.DataFrame.from_dict(
                     self.pos_data,
                     orient='index'
                 ).transpose()
                 print("Calculating spell")
-                classify_spell(df, self.spell_data)
-                print("saved data")
+                performed_spell = classify_spell(df, self.spell_data)
+                print(f"performed spell: {performed_spell}")
                 # Reset data
                 self.pos_data = {
                     "mag_x": [],
@@ -118,18 +95,7 @@ class SpellWand(Wand):
                     "yaw": [],
                     "time": []
                 }
-
-            # Tell user which spell to perform next
-            self.current_spell = next(self.spells)
-            print(f"press button and perform spell {self.current_spell}")
-            print("release button when finished")
         self.pressed = pressed
-
-    # def post_disconnect(self):
-    #     pd.DataFrame.from_dict(self.data,
-    #                            orient='index').transpose().to_csv("tmp.csv",
-    #                                                               index=False)
-
 
 class WandScanner(DefaultDelegate):
     """A scanner class to connect to wands
@@ -146,7 +112,7 @@ class WandScanner(DefaultDelegate):
             debug {bool} -- Print debug messages (default: {False})
         """
         super().__init__()
-        self.wand_class = RecordWand
+        self.wand_class = SpellWand
         self.debug = debug
         self._kano_mac = kano_mac
         self.kano_device = None
@@ -191,7 +157,7 @@ class WandScanner(DefaultDelegate):
                 self.kano_device = device
                 if self.debug:
                     print("found kano wand")
-                self.wand = RecordWand(self.kano_device,
+                self.wand = SpellWand(self.kano_device,
                                        debug=self.debug)
 
 
