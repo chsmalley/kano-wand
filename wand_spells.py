@@ -122,13 +122,11 @@ class WandScanner(DefaultDelegate):
     def scan(
         self,
         timeout: float=5.0,
-        connect: bool=False
-    ):
+    ) -> SpellWand:
         """Scan for devices
 
         Keyword Arguments:
             timeout {float} -- Timeout before returning from scan (default: {1.0})
-            connect {bool} -- Connect to the wands automatically (default: {False})
 
         Returns {Wand} -- wand objects
         """
@@ -137,9 +135,6 @@ class WandScanner(DefaultDelegate):
             print("Scanning for {} seconds...".format(timeout))
 
         self._scanner.scan(timeout)
-        if connect:
-            self.wand.connect()
-            print("wand connected")
         return self.wand
 
     def handleDiscovery(self, device, isNewDev, isNewData):
@@ -170,8 +165,9 @@ if __name__ == '__main__':
         # While we don't have any wands
         while wand is None:
             # Scan for wands and automatically connect
-            wand = shop.scan(connect=True)
+            wand = shop.scan(connect=False)
     # Detect keyboard interrupt and disconnect wands
     except KeyboardInterrupt:
-        wand.disconnect()
+        if wand is not None:
+            wand.disconnect()
     

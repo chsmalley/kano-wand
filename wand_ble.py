@@ -21,10 +21,11 @@ class BluetoothLEConnector:
         devices = scanner.scan(2)  # Scan for 2 seconds
 
         for device in devices:
+            print(f"device: {device}")
+            print(f"device name: {device.getValueText(9)}")
             if self.target_device_name in device.getValueText(9):  # Check the local name
                 self.target_device_address = device.addr
                 return True
-
         return False
 
     def connect(self):

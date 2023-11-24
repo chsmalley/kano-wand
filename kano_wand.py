@@ -4,7 +4,7 @@
 # url='https://github.com/GammaGames/kano_wand'
 
 from enum import Enum
-from bluepy.btle import *
+from bluepy.btle import Peripheral, DefaultDelegate
 import inspect
 import numpy
 import threading
