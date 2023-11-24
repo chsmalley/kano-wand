@@ -4,7 +4,7 @@
 # url='https://github.com/GammaGames/kano_wand'
 
 from enum import Enum
-from bluepy.btle import *
+from bluepy.btle import Peripheral, DefaultDelegate
 import inspect
 import numpy
 import threading
@@ -91,17 +91,20 @@ class Wand(Peripheral, DefaultDelegate):
         self._battery_notification_handle = 23
 
     def connect(self):
+        print("starting connect")
         if self.debug:
             print("Connecting to {}...".format(self.name))
-
+        print(f"{self._dev}")
         super(Wand, self).connect(self._dev)
+        # super().connect(self._dev.addr, "public")
+        print("connected")
         self._lock = threading.Lock()
         self.connected = True
         self.setDelegate(self)
         self._info_service = self.getServiceByUUID(_INFO.SERVICE.value)
         self._io_service = self.getServiceByUUID(_IO.SERVICE.value)
         self._sensor_service = self.getServiceByUUID(_SENSOR.SERVICE.value)
-
+        print("starting post connect")
         self.post_connect()
 
         if self.debug:

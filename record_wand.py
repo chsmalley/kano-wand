@@ -1,11 +1,14 @@
+"""
+D0:1F:65:71:51:32
+"""
 import sys
 import os
 import shutil
-from .kano_wand import Wand
+from kano_wand import Wand
 from bluepy.btle import DefaultDelegate, Scanner
 import time
 import pandas as pd
-from scipy.spatial.transform import Rotation as R
+# from scipy.spatial.transform import Rotation as R
 import numpy as np
 
 SPELLS = [
@@ -23,12 +26,12 @@ SPELLS = [
     "REDUCTO"
 ]
 
-def make_euler(q):
-    q_norm = q / np.linalg.norm(q)
-    r = R.from_quat(q_norm)
-    euler = r.as_euler('zyx', degrees=True)
-    print(f"roll: {euler[0]:.2f}\tyaw: {euler[1]:.2f}\tpitch: {euler[2]:.2f}")
-    return euler
+# def make_euler(q):
+#     q_norm = q / np.linalg.norm(q)
+#     r = R.from_quat(q_norm)
+#     euler = r.as_euler('zyx', degrees=True)
+#     print(f"roll: {euler[0]:.2f}\tyaw: {euler[1]:.2f}\tpitch: {euler[2]:.2f}")
+#     return euler
 
 class RecordWand(Wand):
     def __init__(self, *args, **kwargs):
@@ -226,6 +229,7 @@ class WandScanner(DefaultDelegate):
         if isNewDev:
             # Perform initial detection attempt
             if device.addr == self._kano_mac.lower():
+                print(f"device: {device.addr}")
                 self.kano_device = device
                 if self.debug:
                     print("found kano wand")
@@ -243,6 +247,8 @@ if __name__ == '__main__':
         while wand is None:
             # Scan for wands and automatically connect
             wand = shop.scan(connect=True)
+            print("after scan")
+        print("out of while loop")
     # Detect keyboard interrupt and disconnect wands
     except KeyboardInterrupt:
         wand.disconnect()
