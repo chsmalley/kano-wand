@@ -13,7 +13,6 @@ def mean_square_error(a: List[float], b: List[float]) -> float:
         n = (len(b) + abs(diff) //2) // abs(diff)
         b = [v for i, v in enumerate(b) if (i) % n != 0]
     # Now that the lists are resampled compute distance
-    print(f"lengths: {len(a)} {len(b)}")
     dist = sum([(a_ - b_)**2 for a_, b_ in zip(a, b)]) / len(a)
     return dist
 
@@ -41,7 +40,7 @@ def classify_spell(
     performed_spell: pd.DataFrame,
     spell_data: Dict[str, pd.DataFrame]
 ) -> str:
-    neighbors = get_nearest_neighbors(spell_data, performed_spell)
+    neighbors = get_nearest_neighbors(spell_data, performed_spell, 3)
     # Get most common neighbor
     neighbor_names = [n[0] for n in neighbors]
     return max(set(neighbor_names), key=neighbor_names.count)
