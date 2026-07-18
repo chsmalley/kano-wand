@@ -1,7 +1,8 @@
 import asyncio
 from bleak import BleakClient, BleakScanner
 
-BUTTON_UUID = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+# BUTTON_UUID = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+BUTTON_UUID = '64A7000D-F691-4B93-A6F4-0968F5B648F8'
 
 def button_handler(sender, data):
     print("Button data:", list(data))
