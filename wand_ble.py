@@ -77,9 +77,8 @@ class Wand:
         print(f"connecting to {self.target_device_address}")
         while self.peripheral is None:
             try:
-                self.peripheral = /
-                    btle.Peripheral(self.target_device_address,
-                                    btle.ADDR_TYPE_RANDOM)
+                self.peripheral = btle.Peripheral(self.target_device_address,
+                                                  btle.ADDR_TYPE_RANDOM)
             except btle.BTLEException as e:
                 p = None
                 print(f"Failed to connect: {e}")
@@ -115,9 +114,8 @@ if __name__ == "__main__":
     print("after connect")
     if wand.peripheral:
         print("read char")
-        battery_level = /
-            wand.read_characteristic(_IO.SERVICE.value,
-                                     _IO.BATTERY_CHAR.value)
+        battery_level = wand.read_characteristic(_IO.SERVICE.value,
+                                                 _IO.BATTERY_CHAR.value)
         print(f"Battery Level: {int.from_bytes(battery_level, byteorder='little')}%")
     print("disconnect")
     wand.disconnect()
