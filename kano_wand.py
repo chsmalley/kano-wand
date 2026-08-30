@@ -76,7 +76,7 @@ class KanoWand:
         self.publisher.connect(f"tcp://{NERF_IP}:{NERF_PORT}")
 
     async def connect(self):
-        await self.client.connect(timeout=30)
+        await self.client.connect(timeout=20)
 
         await self.client.start_notify(
             MOTION_UUID,
@@ -114,7 +114,7 @@ class KanoWand:
             if self.latest_motion:
                 self.spell_queue.put(deepcopy(self.latest_motion))
 
-    def decode_button(self, sender, data):
+    def decode_button(self, data):
         return data[0] == 1
 
     def decode_orientation(self, data):
@@ -159,6 +159,7 @@ class KanoWand:
 
 def classify_spell(gesture):
     print(gesture)
+    return "None"
 
 def classify_worker(wand):
     while True:
@@ -166,6 +167,7 @@ def classify_worker(wand):
         spell = classify_spell(gesture)
         print(f"Detected: {spell}")
         wand.spell_queue.task_done()
+        time.sleep(0.1)
 
 async def main():
 
@@ -179,8 +181,8 @@ async def main():
     ).start()
 
     while True:
-        motion = wand.motion_queue.get()
-        print(motion)
+        print(wand.recording)
+        time.sleep(0.5)
 
 if __name__ == "__main__":
     asyncio.run(main())
