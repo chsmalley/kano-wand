@@ -10,13 +10,6 @@ import queue
 import threading
 from dataclasses import dataclass
 
-@dataclass
-class WandState:
-    timestamp: float = 0.0
-    x: float = 0.0
-    y: float = 0.0
-    z: float = 0.0
-    button: bool = False
 
 # BUTTON_UUID = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 BUTTON_UUID = '64A7000D-F691-4B93-A6F4-0968F5B648F8'
@@ -159,7 +152,7 @@ class KanoWand:
 
 def classify_spell(gesture):
     print(gesture)
-    return "None"
+    return "Not detected"
 
 def classify_worker(wand):
     while True:
