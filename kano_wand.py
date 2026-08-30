@@ -181,8 +181,9 @@ async def main():
     ).start()
 
     while True:
-        print(wand.recording)
-        time.sleep(0.5)
+        motion = wand.latest_motion.get()
+        print(motion)
+        time.sleep(0.2)
 
 if __name__ == "__main__":
     asyncio.run(main())
