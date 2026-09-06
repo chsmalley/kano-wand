@@ -35,9 +35,24 @@ NERF_PORT = 5555
 # Data classes
 # ============================================================
 
+spells = [
+    "Stupefy",
+    "Wingardium Leviosa",
+    "Reducio",
+    "Flipendo",
+    "Expelliarmus",
+    "Incendio",
+    "Lumos",
+    "Locomotor",
+    "Engorgio",
+    "Aguamenti",
+    "Avis",
+    "Reducto"
+]
+
 @dataclass
 class WandOrientationState:
-    timestamp: float = 0.0
+    timestamp = time.monotonic()
     x: float = 0.0
     y: float = 0.0
     z: float = 0.0
@@ -46,7 +61,7 @@ class WandOrientationState:
 
 @dataclass
 class WandMotionState:
-    timestamp: float = 0.0
+    timestamp = time.monotonic()
 
     mag_x: float = 0.0
     mag_y: float = 0.0
@@ -60,6 +75,10 @@ class WandMotionState:
     roll: float = 0.0
     yaw: float = 0.0
 
+@dataclass
+class Gesture:
+    motion: list[WandMotionState]
+    orientation: list[WandOrientationState]
 
 # ============================================================
 # Kano Wand
@@ -85,8 +104,10 @@ class KanoWand:
         self.recording = False
 
         # Current gesture being recorded
-        self.current_gesture = []
-
+        self.current_gesture = Gesture(
+            motion=[],
+            orientation=[]
+        )
         # Completed gestures waiting for classification
         self.spell_queue = queue.Queue()
 
@@ -182,33 +203,29 @@ class KanoWand:
 
     def orientation_handler(self, sender, data):
 
-        self.latest_orientation = self.decode_orientation(data)
+        orientation = self.decode_orientation(data)
+
+        self.latest_orientation = orientation
+
+        if self.recording:
+            self.current_gesture.orientation.append(
+                deepcopy(orientation)
+            )
 
     def motion_handler(self, sender, data):
 
-        # Decode incoming motion data
         motion = self.decode_motion(data)
 
-        # Always maintain latest motion
         self.latest_motion = motion
 
-        # ----------------------------------------------------
-        # If button is held, record this sample
-        # ----------------------------------------------------
-
         if self.recording:
-
-            self.current_gesture.append(
+            self.current_gesture.motion.append(
                 deepcopy(motion)
-            )
+        )
 
     def button_handler(self, sender, data):
 
         pressed = self.decode_button(data)
-
-        # ----------------------------------------------------
-        # Button pressed
-        # ----------------------------------------------------
 
         if pressed and not self.button_pressed:
 
@@ -217,40 +234,36 @@ class KanoWand:
             self.button_pressed = True
             self.recording = True
 
-            # Start a new gesture
-            self.current_gesture = []
-
-            # Optionally include the current motion sample
-            self.current_gesture.append(
-                deepcopy(self.latest_motion)
+            self.current_gesture = Gesture(
+                motion=[],
+                orientation=[]
             )
-
-        # ----------------------------------------------------
-        # Button released
-        # ----------------------------------------------------
 
         elif not pressed and self.button_pressed:
 
             print(
                 f"BUTTON UP - "
-                f"{len(self.current_gesture)} samples"
+                f"{len(self.current_gesture.motion)} motion samples, "
+                f"{len(self.current_gesture.orientation)} "
+                f"orientation samples"
             )
 
             self.button_pressed = False
             self.recording = False
 
-            # Don't queue empty gestures
-            if self.current_gesture:
+            if (
+                self.current_gesture.motion
+                or self.current_gesture.orientation
+            ):
 
-                # Make a copy because current_gesture will
-                # be reused for the next spell.
-                gesture = deepcopy(
-                    self.current_gesture
+                self.spell_queue.put(
+                    deepcopy(self.current_gesture)
                 )
 
-                self.spell_queue.put(gesture)
-
-            self.current_gesture = []
+            self.current_gesture = Gesture(
+                motion=[],
+                orientation=[]
+            )
 
     # ========================================================
     # Decoders
@@ -304,7 +317,7 @@ class KanoWand:
         z /= 1024
 
         return WandOrientationState(
-            timestamp=time.time(),
+            timestamp=time.monotonic(),
             x=x,
             y=y,
             z=z,
@@ -395,7 +408,7 @@ class KanoWand:
         )
 
         return WandMotionState(
-            timestamp=time.time(),
+            timestamp=time.monotonic(),
             mag_x=mag_x,
             mag_y=mag_y,
             mag_z=mag_z,
@@ -411,16 +424,20 @@ class KanoWand:
 # ============================================================
 # Spell classification
 # ============================================================
-
 def classify_spell(gesture):
 
+    motion = gesture.motion
+    orientation = gesture.orientation
+
     print(
-        f"Classifying gesture with "
-        f"{len(gesture)} samples"
+        f"Motion samples: {len(motion)}"
     )
 
-    # TODO:
-    # Process gesture here
+    print(
+        f"Orientation samples: {len(orientation)}"
+    )
+
+    # Classification...
 
     return "Not detected"
 
