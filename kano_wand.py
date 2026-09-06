@@ -392,6 +392,7 @@ class KanoWand:
                     byteorder="little"
                 )
             )
+        )
 
         return WandMotionState(
             timestamp=time.time(),
