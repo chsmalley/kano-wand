@@ -7,13 +7,13 @@ from dataclasses import asdict
 from pathlib import Path
 
 # Import your KanoWand class
-# from kano_wand import KanoWand
+from kano_wand import KanoWand
 
 # ----------------------------------------------------------------------
 # Configuration
 # ----------------------------------------------------------------------
 
-WAND_ADDRESS = "D0:1F:65:71:32"
+WAND_ADDRESS = "D0:1F:65:71:51:32"
 
 TRAINING_FOLDER = Path("training_data")
 
