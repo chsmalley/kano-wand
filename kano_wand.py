@@ -275,41 +275,41 @@ class KanoWand:
 
     def decode_orientation(self, data):
 
-        w = numpy.int16(
+        w = int(numpy.int16(
             numpy.uint16(
                 int.from_bytes(
                     data[0:2],
                     byteorder="little"
                 )
             )
-        )
+        ))
 
-        x = numpy.int16(
+        x = int(numpy.int16(
             numpy.uint16(
                 int.from_bytes(
                     data[2:4],
                     byteorder="little"
                 )
             )
-        )
+        ))
 
-        y = numpy.int16(
+        y = int(numpy.int16(
             numpy.uint16(
                 int.from_bytes(
                     data[4:6],
                     byteorder="little"
                 )
             )
-        )
+        ))
 
-        z = numpy.int16(
+        z = int(numpy.int16(
             numpy.uint16(
                 int.from_bytes(
                     data[6:8],
                     byteorder="little"
                 )
             )
-        )
+        ))
 
         w /= 1024
         x /= 1024
@@ -326,86 +326,86 @@ class KanoWand:
 
     def decode_motion(self, data):
 
-        acc_x = numpy.int16(
+        acc_x = int(numpy.int16(
             numpy.uint16(
                 int.from_bytes(
                     data[0:2],
                     byteorder="little"
                 )
             )
-        )
+        ))
 
-        acc_y = numpy.int16(
+        acc_y = int(numpy.int16(
             numpy.uint16(
                 int.from_bytes(
                     data[2:4],
                     byteorder="little"
                 )
             )
-        )
+        ))
 
-        acc_z = numpy.int16(
+        acc_z = int(numpy.int16(
             numpy.uint16(
                 int.from_bytes(
                     data[4:6],
                     byteorder="little"
                 )
             )
-        )
+        ))
 
-        mag_x = numpy.int16(
+        mag_x = int(numpy.int16(
             numpy.uint16(
                 int.from_bytes(
                     data[6:8],
                     byteorder="little"
                 )
             )
-        )
+        ))
 
-        mag_y = numpy.int16(
+        mag_y = int(numpy.int16(
             numpy.uint16(
                 int.from_bytes(
                     data[8:10],
                     byteorder="little"
                 )
             )
-        )
+        ))
 
-        mag_z = numpy.int16(
+        mag_z = int(numpy.int16(
             numpy.uint16(
                 int.from_bytes(
                     data[10:12],
                     byteorder="little"
                 )
             )
-        )
+        ))
 
-        yaw = numpy.int16(
+        yaw = int(numpy.int16(
             numpy.uint16(
                 int.from_bytes(
                     data[12:14],
                     byteorder="little"
                 )
             )
-        )
+        ))
 
-        pitch = numpy.int16(
+        pitch = int(numpy.int16(
             numpy.uint16(
                 int.from_bytes(
                     data[14:16],
                     byteorder="little"
                 )
             )
-        )
+        ))
 
-        roll = numpy.int16(
+        roll = int(numpy.int16(
             numpy.uint16(
                 int.from_bytes(
                     data[16:18],
                     byteorder="little"
                 )
             )
-        )
+        ))
 
         return WandMotionState(
             timestamp=time.monotonic(),

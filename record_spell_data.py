@@ -284,11 +284,7 @@ async def main():
     recordings = []
 
     try:
-        print("Connecting to wand...")
         await wand.connect()
-
-        print("Wand connected!")
-        print()
 
         # Give BLE notifications a moment to stabilize
         await asyncio.sleep(1)
