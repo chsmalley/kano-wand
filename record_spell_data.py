@@ -13,7 +13,7 @@ from kano_wand import KanoWand
 # Configuration
 # ----------------------------------------------------------------------
 
-WAND_ADDRESS = "D0:1F:65:71:32"
+WAND_ADDRESS = "D0:1F:65:71:51:32"
 
 TRAINING_FOLDER = Path("training_data")
 
