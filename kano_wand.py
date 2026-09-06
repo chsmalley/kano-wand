@@ -52,7 +52,7 @@ spells = [
 
 @dataclass
 class WandOrientationState:
-    timestamp = time.monotonic()
+    timestamp: float = time.monotonic()
     x: float = 0.0
     y: float = 0.0
     z: float = 0.0
@@ -61,7 +61,7 @@ class WandOrientationState:
 
 @dataclass
 class WandMotionState:
-    timestamp = time.monotonic()
+    timestamp: float = time.monotonic()
 
     mag_x: float = 0.0
     mag_y: float = 0.0
