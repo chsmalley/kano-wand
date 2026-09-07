@@ -1,13 +1,21 @@
 import asyncio
 from bleak import BleakClient
-import numpy
+import numpy as np
 import zmq
 import time
 import queue
 import threading
 from dataclasses import dataclass
 from copy import deepcopy
+import joblib
 
+# ============================================================
+# Classification parameters
+# ============================================================
+
+MODEL_FILE = "spell_classifier.joblib"
+NUM_SAMPLES = 100
+classifier = joblib.load(MODEL_FILE)
 
 # ============================================================
 # Bluetooth UUIDs
@@ -32,23 +40,212 @@ NERF_PORT = 5555
 
 
 # ============================================================
-# Data classes
+# Classification helpers
 # ============================================================
 
-spells = [
-    "Stupefy",
-    "Wingardium Leviosa",
-    "Reducio",
-    "Flipendo",
-    "Expelliarmus",
-    "Incendio",
-    "Lumos",
-    "Locomotor",
-    "Engorgio",
-    "Aguamenti",
-    "Avis",
-    "Reducto"
-]
+def interpolate_stream(samples, timestamps, num_samples):
+    """
+    Resample a time series to a fixed number of samples.
+    """
+
+    if len(samples) == 0:
+        return np.zeros((num_samples, 1))
+
+    samples = np.asarray(samples, dtype=float)
+    timestamps = np.asarray(timestamps, dtype=float)
+
+    # Remove duplicate timestamps
+    _, indices = np.unique(
+        timestamps,
+        return_index=True
+    )
+
+    indices = np.sort(indices)
+
+    timestamps = timestamps[indices]
+    samples = samples[indices]
+
+    if len(timestamps) == 1:
+        return np.repeat(
+            samples,
+            num_samples,
+            axis=0
+        )
+
+    old_time = np.linspace(
+        0,
+        1,
+        len(timestamps)
+    )
+
+    new_time = np.linspace(
+        0,
+        1,
+        num_samples
+    )
+
+    result = np.zeros(
+        (num_samples, samples.shape[1])
+    )
+
+    for column in range(samples.shape[1]):
+
+        result[:, column] = np.interp(
+            new_time,
+            old_time,
+            samples[:, column]
+        )
+
+    return result
+
+
+def gesture_to_features(gesture):
+    """
+    Convert a Gesture object into the same feature vector
+    used during training.
+    """
+
+    # --------------------------------------------------------------
+    # Motion
+    # --------------------------------------------------------------
+
+    if len(gesture.motion) > 0:
+
+        timestamps = [
+            sample.timestamp
+            for sample in gesture.motion
+        ]
+
+        values = [
+            [
+                sample.mag_x,
+                sample.mag_y,
+                sample.mag_z,
+                sample.acc_x,
+                sample.acc_y,
+                sample.acc_z,
+                sample.pitch,
+                sample.roll,
+                sample.yaw
+            ]
+            for sample in gesture.motion
+        ]
+
+        motion = interpolate_stream(
+            values,
+            timestamps,
+            NUM_SAMPLES
+        )
+
+    else:
+
+        motion = np.zeros(
+            (NUM_SAMPLES, 9)
+        )
+
+    # --------------------------------------------------------------
+    # Orientation
+    # --------------------------------------------------------------
+
+    if len(gesture.orientation) > 0:
+
+        timestamps = [
+            sample.timestamp
+            for sample in gesture.orientation
+        ]
+
+        values = [
+            [
+                sample.x,
+                sample.y,
+                sample.z,
+                sample.w
+            ]
+            for sample in gesture.orientation
+        ]
+
+        orientation = interpolate_stream(
+            values,
+            timestamps,
+            NUM_SAMPLES
+        )
+
+    else:
+
+        orientation = np.zeros(
+            (NUM_SAMPLES, 4)
+        )
+
+    # --------------------------------------------------------------
+    # Combine
+    # --------------------------------------------------------------
+
+    combined = np.hstack([
+        motion,
+        orientation
+    ])
+
+    return combined.flatten()
+
+
+def classify_spell(gesture):
+
+    features = gesture_to_features(
+        gesture
+    )
+
+    features = features.reshape(
+        1,
+        -1
+    )
+
+    prediction = classifier.predict(
+        features
+    )[0]
+
+    # Get prediction probabilities
+    probabilities = classifier.predict_proba(
+        features
+    )[0]
+
+    classes = classifier.classes_
+
+    # Find confidence of prediction
+    prediction_index = np.argmax(
+        probabilities
+    )
+
+    confidence = probabilities[
+        prediction_index
+    ]
+
+    print()
+    print(
+        f"Prediction: {prediction}"
+    )
+    print(
+        f"Confidence: {confidence:.1%}"
+    )
+
+    # Print the top 3 predictions
+    top_indices = np.argsort(
+        probabilities
+    )[::-1][:3]
+
+    print("Top predictions:")
+
+    for index in top_indices:
+
+        print(
+            f"  {classes[index]:25s}"
+            f" {probabilities[index]:.1%}"
+        )
+
+    return prediction
+
+# ============================================================
+# Data classes
+# ============================================================
 
 @dataclass
 class WandOrientationState:
@@ -275,8 +472,8 @@ class KanoWand:
 
     def decode_orientation(self, data):
 
-        w = int(numpy.int16(
-            numpy.uint16(
+        w = int(np.int16(
+            np.uint16(
                 int.from_bytes(
                     data[0:2],
                     byteorder="little"
@@ -284,8 +481,8 @@ class KanoWand:
             )
         ))
 
-        x = int(numpy.int16(
-            numpy.uint16(
+        x = int(np.int16(
+            np.uint16(
                 int.from_bytes(
                     data[2:4],
                     byteorder="little"
@@ -293,8 +490,8 @@ class KanoWand:
             )
         ))
 
-        y = int(numpy.int16(
-            numpy.uint16(
+        y = int(np.int16(
+            np.uint16(
                 int.from_bytes(
                     data[4:6],
                     byteorder="little"
@@ -302,8 +499,8 @@ class KanoWand:
             )
         ))
 
-        z = int(numpy.int16(
-            numpy.uint16(
+        z = int(np.int16(
+            np.uint16(
                 int.from_bytes(
                     data[6:8],
                     byteorder="little"
@@ -326,8 +523,8 @@ class KanoWand:
 
     def decode_motion(self, data):
 
-        acc_x = int(numpy.int16(
-            numpy.uint16(
+        acc_x = int(np.int16(
+            np.uint16(
                 int.from_bytes(
                     data[0:2],
                     byteorder="little"
@@ -335,8 +532,8 @@ class KanoWand:
             )
         ))
 
-        acc_y = int(numpy.int16(
-            numpy.uint16(
+        acc_y = int(np.int16(
+            np.uint16(
                 int.from_bytes(
                     data[2:4],
                     byteorder="little"
@@ -344,8 +541,8 @@ class KanoWand:
             )
         ))
 
-        acc_z = int(numpy.int16(
-            numpy.uint16(
+        acc_z = int(np.int16(
+            np.uint16(
                 int.from_bytes(
                     data[4:6],
                     byteorder="little"
@@ -353,8 +550,8 @@ class KanoWand:
             )
         ))
 
-        mag_x = int(numpy.int16(
-            numpy.uint16(
+        mag_x = int(np.int16(
+            np.uint16(
                 int.from_bytes(
                     data[6:8],
                     byteorder="little"
@@ -362,8 +559,8 @@ class KanoWand:
             )
         ))
 
-        mag_y = int(numpy.int16(
-            numpy.uint16(
+        mag_y = int(np.int16(
+            np.uint16(
                 int.from_bytes(
                     data[8:10],
                     byteorder="little"
@@ -371,8 +568,8 @@ class KanoWand:
             )
         ))
 
-        mag_z = int(numpy.int16(
-            numpy.uint16(
+        mag_z = int(np.int16(
+            np.uint16(
                 int.from_bytes(
                     data[10:12],
                     byteorder="little"
@@ -380,8 +577,8 @@ class KanoWand:
             )
         ))
 
-        yaw = int(numpy.int16(
-            numpy.uint16(
+        yaw = int(np.int16(
+            np.uint16(
                 int.from_bytes(
                     data[12:14],
                     byteorder="little"
@@ -389,8 +586,8 @@ class KanoWand:
             )
         ))
 
-        pitch = int(numpy.int16(
-            numpy.uint16(
+        pitch = int(np.int16(
+            np.uint16(
                 int.from_bytes(
                     data[14:16],
                     byteorder="little"
@@ -398,8 +595,8 @@ class KanoWand:
             )
         ))
 
-        roll = int(numpy.int16(
-            numpy.uint16(
+        roll = int(np.int16(
+            np.uint16(
                 int.from_bytes(
                     data[16:18],
                     byteorder="little"
@@ -419,27 +616,6 @@ class KanoWand:
             roll=roll,
             yaw=yaw
         )
-
-
-# ============================================================
-# Spell classification
-# ============================================================
-def classify_spell(gesture):
-
-    motion = gesture.motion
-    orientation = gesture.orientation
-
-    print(
-        f"Motion samples: {len(motion)}"
-    )
-
-    print(
-        f"Orientation samples: {len(orientation)}"
-    )
-
-    # Classification...
-
-    return "Not detected"
 
 
 # ============================================================
