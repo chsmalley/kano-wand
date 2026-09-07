@@ -9,13 +9,29 @@ from dataclasses import dataclass
 from copy import deepcopy
 import joblib
 
+
 # ============================================================
 # Classification parameters
 # ============================================================
 
 MODEL_FILE = "spell_classifier.joblib"
 NUM_SAMPLES = 100
-classifier = joblib.load(MODEL_FILE)
+
+# A prediction below this probability is treated as Unknown.
+UNKNOWN_CONFIDENCE_THRESHOLD = 0.65
+
+# Also require the winning class to beat the runner-up by this margin.
+# This helps reject ambiguous gestures.
+UNKNOWN_MARGIN_THRESHOLD = 0.15
+
+try:
+    classifier = joblib.load(MODEL_FILE)
+    print(f"Loaded classifier: {MODEL_FILE}")
+except FileNotFoundError:
+    classifier = None
+    print(f"WARNING: Classifier file not found: {MODEL_FILE}")
+    print("Spell classification will be unavailable until a model is trained.")
+
 
 # ============================================================
 # Bluetooth UUIDs
@@ -72,6 +88,8 @@ def interpolate_stream(samples, timestamps, num_samples):
             axis=0
         )
 
+    # We are interested in the shape of the gesture over its duration,
+    # so normalize each stream's time axis to 0..1.
     old_time = np.linspace(
         0,
         1,
@@ -89,7 +107,6 @@ def interpolate_stream(samples, timestamps, num_samples):
     )
 
     for column in range(samples.shape[1]):
-
         result[:, column] = np.interp(
             new_time,
             old_time,
@@ -138,7 +155,6 @@ def gesture_to_features(gesture):
         )
 
     else:
-
         motion = np.zeros(
             (NUM_SAMPLES, 9)
         )
@@ -171,13 +187,12 @@ def gesture_to_features(gesture):
         )
 
     else:
-
         orientation = np.zeros(
             (NUM_SAMPLES, 4)
         )
 
     # --------------------------------------------------------------
-    # Combine
+    # Combine motion + orientation
     # --------------------------------------------------------------
 
     combined = np.hstack([
@@ -189,59 +204,57 @@ def gesture_to_features(gesture):
 
 
 def classify_spell(gesture):
+    """
+    Classify a completed Gesture.
 
-    features = gesture_to_features(
-        gesture
-    )
+    Returns:
+        prediction: predicted spell or "Unknown"
+        confidence: probability of the top prediction
+        top_predictions: list of (spell, probability), highest first
+    """
 
-    features = features.reshape(
-        1,
-        -1
-    )
+    if classifier is None:
+        return "Unknown", 0.0, []
 
-    prediction = classifier.predict(
-        features
-    )[0]
+    features = gesture_to_features(gesture)
+    features = features.reshape(1, -1)
 
-    # Get prediction probabilities
-    probabilities = classifier.predict_proba(
-        features
-    )[0]
-
+    probabilities = classifier.predict_proba(features)[0]
     classes = classifier.classes_
 
-    # Find confidence of prediction
-    prediction_index = np.argmax(
-        probabilities
-    )
+    # Sort all classes from highest to lowest probability
+    sorted_indices = np.argsort(probabilities)[::-1]
 
-    confidence = probabilities[
-        prediction_index
+    top_predictions = [
+        (
+            str(classes[index]),
+            float(probabilities[index])
+        )
+        for index in sorted_indices
     ]
 
-    print()
-    print(
-        f"Prediction: {prediction}"
-    )
-    print(
-        f"Confidence: {confidence:.1%}"
-    )
+    best_index = sorted_indices[0]
+    prediction = str(classes[best_index])
+    confidence = float(probabilities[best_index])
 
-    # Print the top 3 predictions
-    top_indices = np.argsort(
-        probabilities
-    )[::-1][:3]
-
-    print("Top predictions:")
-
-    for index in top_indices:
-
-        print(
-            f"  {classes[index]:25s}"
-            f" {probabilities[index]:.1%}"
+    # Probability gap between first and second choice.
+    if len(sorted_indices) > 1:
+        second_confidence = float(
+            probabilities[sorted_indices[1]]
         )
+        margin = confidence - second_confidence
+    else:
+        margin = confidence
 
-    return prediction
+    # Reject weak or ambiguous predictions.
+    if (
+        confidence < UNKNOWN_CONFIDENCE_THRESHOLD
+        or margin < UNKNOWN_MARGIN_THRESHOLD
+    ):
+        prediction = "Unknown"
+
+    return prediction, confidence, top_predictions
+
 
 # ============================================================
 # Data classes
@@ -249,7 +262,7 @@ def classify_spell(gesture):
 
 @dataclass
 class WandOrientationState:
-    timestamp: float = time.monotonic()
+    timestamp: float = 0.0
     x: float = 0.0
     y: float = 0.0
     z: float = 0.0
@@ -258,7 +271,7 @@ class WandOrientationState:
 
 @dataclass
 class WandMotionState:
-    timestamp: float = time.monotonic()
+    timestamp: float = 0.0
 
     mag_x: float = 0.0
     mag_y: float = 0.0
@@ -272,10 +285,12 @@ class WandMotionState:
     roll: float = 0.0
     yaw: float = 0.0
 
+
 @dataclass
 class Gesture:
     motion: list[WandMotionState]
     orientation: list[WandOrientationState]
+
 
 # ============================================================
 # Kano Wand
@@ -305,11 +320,16 @@ class KanoWand:
             motion=[],
             orientation=[]
         )
+
         # Completed gestures waiting for classification
         self.spell_queue = queue.Queue()
 
-        # Used to shut down the classifier thread
+        # Used to stop the classifier thread and the main loop
         self.shutdown_event = threading.Event()
+
+        # Prevent the disconnect callback from reporting our own
+        # intentional shutdown as an unexpected Bluetooth failure.
+        self._disconnecting = False
 
         # ----------------------------------------------------
         # ZeroMQ
@@ -327,6 +347,9 @@ class KanoWand:
     # ========================================================
 
     async def connect(self):
+
+        self._disconnecting = False
+        self.shutdown_event.clear()
 
         print("Connecting to wand...")
 
@@ -353,46 +376,62 @@ class KanoWand:
 
     async def disconnect(self):
 
+        # Prevent the disconnected callback from looking like an
+        # unexpected Bluetooth failure.
+        self._disconnecting = True
+
+        self.recording = False
+        self.button_pressed = False
+
         print("Disconnecting wand...")
 
         try:
 
             if self.client.is_connected:
 
-                # Stop notifications first
-                try:
-                    await self.client.stop_notify(MOTION_UUID)
-                except Exception:
-                    pass
+                # Stop notifications first.
+                for uuid in (
+                    MOTION_UUID,
+                    QUATERNIONS_UUID,
+                    BUTTON_UUID
+                ):
+                    try:
+                        await self.client.stop_notify(uuid)
+                    except Exception:
+                        pass
 
                 try:
-                    await self.client.stop_notify(QUATERNIONS_UUID)
-                except Exception:
-                    pass
-
-                try:
-                    await self.client.stop_notify(BUTTON_UUID)
-                except Exception:
-                    pass
-
-                await self.client.disconnect()
+                    await self.client.disconnect()
+                except Exception as e:
+                    print(f"Error disconnecting Bluetooth: {e}")
 
         except Exception as e:
+            print(f"Error during wand shutdown: {e}")
 
-            print(f"Error disconnecting wand: {e}")
-
-        print("Wand disconnected")
-
-        # Close ZeroMQ
+        # Close ZeroMQ.
         try:
-            self.publisher.close()
+            self.publisher.close(linger=0)
+        except Exception:
+            pass
+
+        try:
             self.context.term()
         except Exception:
             pass
 
+        print("Wand disconnected")
+
     def disconnected_callback(self, client):
 
-        print("Wand disconnected!")
+        # This callback is also called during a normal disconnect.
+        # Only treat it as an error if we did not intentionally shut down.
+        if not self._disconnecting:
+            print()
+            print("WARNING: Wand Bluetooth connection was lost!")
+            print("Stopping application...")
+            self.recording = False
+            self.button_pressed = False
+            self.shutdown_event.set()
 
     # ========================================================
     # Notification handlers
@@ -418,7 +457,7 @@ class KanoWand:
         if self.recording:
             self.current_gesture.motion.append(
                 deepcopy(motion)
-        )
+            )
 
     def button_handler(self, sender, data):
 
@@ -629,26 +668,48 @@ def classify_worker(wand):
     while not wand.shutdown_event.is_set():
 
         try:
-
-            # Wait up to 0.5 seconds so we can check
-            # the shutdown event.
             gesture = wand.spell_queue.get(
                 timeout=0.5
             )
 
         except queue.Empty:
-
             continue
 
         try:
 
-            spell = classify_spell(gesture)
+            prediction, confidence, top_predictions = (
+                classify_spell(gesture)
+            )
 
-            print(f"Detected: {spell}")
+            print()
+            print("=" * 60)
+            print(f"Prediction: {prediction}")
+            print(f"Confidence: {confidence:.1%}")
+
+            print()
+            print("Top predictions:")
+
+            for spell, probability in top_predictions[:3]:
+                print(
+                    f"  {spell:25s} "
+                    f"{probability:.1%}"
+                )
+
+            if prediction == "Unknown":
+                print()
+                print(
+                    "The gesture was not classified with "
+                    "enough confidence."
+                )
+
+            print("=" * 60)
 
         except Exception as e:
 
-            print(f"Classification error: {e}")
+            print(
+                f"Classification error: "
+                f"{type(e).__name__}: {e}"
+            )
 
         finally:
 
@@ -677,33 +738,44 @@ async def main():
 
         classifier_thread.start()
 
-        print("Running. Press Ctrl+C to stop.")
+        print()
+        print("Running.")
+        print("Press and hold the wand button to perform a spell.")
+        print("Release the button when the spell is complete.")
+        print("Press Ctrl+C to stop.")
+        print()
 
-        while True:
-
-            # Don't use .get() here.
-            # latest_motion is just the latest state.
-            motion = wand.latest_motion
-
-            print(
-                f"X={motion.acc_x} "
-                f"Y={motion.acc_y} "
-                f"Z={motion.acc_z}"
-            )
+        # Keep the asyncio event loop alive so Bleak can continue
+        # processing Bluetooth notifications.
+        while not wand.shutdown_event.is_set():
 
             await asyncio.sleep(0.2)
 
+    except Exception as e:
+
+        print()
+        print(
+            f"ERROR: {type(e).__name__}: {e}"
+        )
+
     finally:
 
+        print()
         print("Shutting down...")
 
-        # Tell classifier thread to stop
+        # Tell classifier thread to stop.
         wand.shutdown_event.set()
 
-        # Wait for classifier thread
+        # Give it time to finish anything currently being classified.
         classifier_thread.join(timeout=2)
 
-        # Safely disconnect Bluetooth
+        if classifier_thread.is_alive():
+            print(
+                "WARNING: Classifier thread did not stop "
+                "within the timeout."
+            )
+
+        # Safely disconnect Bluetooth and ZeroMQ.
         await wand.disconnect()
 
         print("Shutdown complete")
@@ -716,9 +788,10 @@ async def main():
 if __name__ == "__main__":
 
     try:
-
         asyncio.run(main())
 
     except KeyboardInterrupt:
-
-        print("\nCtrl+C received")
+        # asyncio normally propagates Ctrl+C into main(), where the
+        # finally block performs the actual cleanup.
+        print()
+        print("Ctrl+C received")
