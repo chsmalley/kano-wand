@@ -295,7 +295,8 @@ class KanoWand:
         # Current state
         self.latest_motion = WandMotionState()
         self.latest_orientation = WandOrientationState()
-
+        self.bluetooth_disconnected = threading.Event()
+        
         # Button / recording state
         self.button_pressed = False
         self.recording = False
@@ -391,8 +392,8 @@ class KanoWand:
             pass
 
     def disconnected_callback(self, client):
-
-        print("Wand disconnected!")
+        self.bluetooth_disconnected.set()
+        print("Wand Bluetooth connection lost!")
 
     # ========================================================
     # Notification handlers
@@ -406,7 +407,7 @@ class KanoWand:
 
         if self.recording:
             self.current_gesture.orientation.append(
-                deepcopy(orientation)
+                orientation
             )
 
     def motion_handler(self, sender, data):
@@ -417,7 +418,7 @@ class KanoWand:
 
         if self.recording:
             self.current_gesture.motion.append(
-                deepcopy(motion)
+                motion
         )
 
     def button_handler(self, sender, data):
@@ -453,9 +454,8 @@ class KanoWand:
                 or self.current_gesture.orientation
             ):
 
-                self.spell_queue.put(
-                    deepcopy(self.current_gesture)
-                )
+                completed_gesture = self.current_gesture
+                self.spell_queue.put(completed_gesture)
 
             self.current_gesture = Gesture(
                 motion=[],
