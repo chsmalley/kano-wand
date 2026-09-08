@@ -331,6 +331,8 @@ class KanoWand:
         # Prevent the disconnect callback from reporting our own
         # intentional shutdown as an unexpected Bluetooth failure.
         self._disconnecting = False
+        self._connecting = False
+        self._connected_ready = False
 
         # ----------------------------------------------------
         # ZeroMQ
@@ -350,6 +352,8 @@ class KanoWand:
     async def connect(self):
 
         self._disconnecting = False
+        self._connecting = True
+        self._connected_ready = False
         self.shutdown_event.clear()
 
         print("Connecting to wand...")
@@ -372,7 +376,10 @@ class KanoWand:
             BUTTON_UUID,
             self.button_handler
         )
-
+        self._connecting = False
+        self._connected_ready = True
+        self.bluetooth_disconnected.clear()
+        self.shutdown_event.clear()
         print("Notifications started")
 
     async def disconnect(self):
@@ -423,15 +430,21 @@ class KanoWand:
         print("Wand disconnected")
 
     def disconnected_callback(self, client):
-        # This callback is also called during a normal disconnect.
-        # Only treat it as an error if we did not intentionally shut down.
-        if not self._disconnecting:
-            print()
-            print("WARNING: Wand Bluetooth connection was lost!")
-            print("Stopping application...")
-            self.recording = False
-            self.button_pressed = False
-            self.shutdown_event.set()
+        if self._disconnecting:
+            return
+
+        if self._connecting:
+            print("BLE disconnect callback occurred during connection setup.")
+            return
+
+        if not self._connected_ready:
+            return
+        print()
+        print("WARNING: Wand Bluetooth connection was lost!")
+        print("Stopping application...")
+        self.recording = False
+        self.button_pressed = False
+        self.shutdown_event.set()
 
     # ========================================================
     # Notification handlers

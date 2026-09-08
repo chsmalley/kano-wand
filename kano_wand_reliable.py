@@ -172,6 +172,7 @@ class KanoWand:
         self.latest_orientation = WandOrientationState()
 
         self.bluetooth_disconnected = threading.Event()
+        self.bluetooth_disconnected.clear()
         self.shutdown_event = threading.Event()
 
         self.last_notification_time = time.monotonic()
@@ -185,6 +186,8 @@ class KanoWand:
         self.spell_queue = queue.Queue()
 
         self._disconnecting = False
+        self._connecting = False
+        self._connected_ready = False
 
         self.context = zmq.Context()
         self.publisher = self.context.socket(zmq.PUB)
@@ -193,8 +196,6 @@ class KanoWand:
 
     async def connect(self):
         self._disconnecting = False
-        self.shutdown_event.clear()
-        self.bluetooth_disconnected.clear()
 
         print("Connecting to wand...")
 
@@ -222,6 +223,10 @@ class KanoWand:
             await self.client.start_notify(
                 BUTTON_UUID, self.button_handler
             )
+            self._connecting = False
+            self._connected_ready = True
+            self.bluetooth_disconnected.clear()
+            self.shutdown_event.clear()
 
             self.last_notification_time = time.monotonic()
             print("Notifications started")
@@ -295,6 +300,8 @@ class KanoWand:
             return
 
         self._disconnecting = True
+        self._connecting = False
+        self._connected_ready = False
         self.recording = False
         self.button_pressed = False
 
@@ -334,15 +341,21 @@ class KanoWand:
                 pass
 
             print("Wand disconnected")
-
+    
     def disconnected_callback(self, client):
-        # Keep this callback extremely lightweight.
         if self._disconnecting:
             return
 
+        if self._connecting:
+            print("BLE disconnect callback occurred during connection setup.")
+            return
+
+        if not self._connected_ready:
+            return
+        
         print()
         print("WARNING: Wand Bluetooth connection was lost!")
-
+        print("Stopping application...")
         self.bluetooth_disconnected.set()
         self.recording = False
         self.button_pressed = False
