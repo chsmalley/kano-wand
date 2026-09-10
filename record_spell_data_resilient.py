@@ -143,47 +143,96 @@ def clear_spell_queue(wand):
             break
 
 
+async def ensure_connected(wand):
+    """Recover the BLE connection if Bleak reports it has been lost."""
+    if wand.shutdown_event.is_set():
+        return False
+
+    if wand.bluetooth_disconnected.is_set() or not wand.client.is_connected:
+        print()
+        print("BLE connection is unavailable. Recovering...")
+        return await wand.reconnect(attempts=5, delay=2.0)
+
+    return True
+
+
+def print_ble_diagnostics(wand):
+    now = time.monotonic()
+    print(
+        "BLE diagnostics: "
+        f"connected={wand.client.is_connected}, "
+        f"motion={wand.notification_counts['motion']}, "
+        f"orientation={wand.notification_counts['orientation']}, "
+        f"button={wand.notification_counts['button']}, "
+        f"button_down={wand.button_down_count}, "
+        f"button_up={wand.button_up_count}, "
+        f"last_any={now - wand.last_notification_time:.2f}s ago"
+    )
+
+
 async def wait_for_gesture(wand):
     """
-    Wait for the user to:
+    Wait for a button-held gesture while watching for BLE loss.
 
-        1. Press and hold the wand button.
-        2. Perform the spell.
-        3. Release the button.
-
-    The KanoWand button handler controls wand.recording.
+    If BLE drops before a gesture begins, reconnect and keep waiting.
+    If BLE drops during a gesture, discard that partial gesture, reconnect,
+    and require the user to repeat it rather than saving incomplete data.
     """
 
-    # Wait for the button to be pressed
     print()
     print("Press and HOLD the wand button...")
-    
-    while not wand.recording:
+
+    last_status = time.monotonic()
+
+    while True:
+        if wand.bluetooth_disconnected.is_set() or not wand.client.is_connected:
+            if not await ensure_connected(wand):
+                raise RuntimeError("Unable to recover the wand Bluetooth connection.")
+            print("BLE recovered. Please press and HOLD the wand button...")
+            last_status = time.monotonic()
+
+        if wand.recording:
+            print("Recording!")
+
+            # Wait for release, but abort this recording if BLE disappears.
+            while wand.recording:
+                if wand.bluetooth_disconnected.is_set() or not wand.client.is_connected:
+                    print()
+                    print("BLE lost during recording. This attempt will NOT be saved.")
+                    if not await ensure_connected(wand):
+                        raise RuntimeError(
+                            "Unable to recover the wand Bluetooth connection."
+                        )
+                    print("BLE recovered. Please repeat this spell.")
+                    clear_spell_queue(wand)
+                    wand.recording = False
+                    wand.button_pressed = False
+                    return await wait_for_gesture(wand)
+
+                await asyncio.sleep(0.01)
+
+            print("Button released.")
+
+            for _ in range(100):
+                try:
+                    gesture = wand.spell_queue.get_nowait()
+                    wand.spell_queue.task_done()
+                    return gesture
+                except Exception:
+                    await asyncio.sleep(0.01)
+
+            # A release without a queued gesture means the callback stream
+            # was interrupted or the gesture was empty.  Do not save it.
+            raise RuntimeError(
+                "Button was released, but no completed gesture was received."
+            )
+
+        # While waiting for the user, periodically report diagnostics.
+        if time.monotonic() - last_status >= 10:
+            print_ble_diagnostics(wand)
+            last_status = time.monotonic()
+
         await asyncio.sleep(0.01)
-
-    print("Recording!")
-
-    # Wait for the button to be released
-    while wand.recording:
-        await asyncio.sleep(0.01)
-
-    print("Button released.")
-
-    # The button handler should have placed the completed Gesture
-    # into spell_queue.
-    #
-    # Give the callback a moment to finish.
-    for _ in range(100):
-        try:
-            gesture = wand.spell_queue.get_nowait()
-            wand.spell_queue.task_done()
-            return gesture
-        except Exception:
-            await asyncio.sleep(0.01)
-
-    raise RuntimeError(
-        "Button was released, but no completed gesture was received."
-    )
 
 
 # ----------------------------------------------------------------------
@@ -213,8 +262,14 @@ async def record_spell(wand, spell, repetition, output_folder):
     # Make sure there isn't an old gesture waiting in the queue
     clear_spell_queue(wand)
 
-    # Wait for the actual gesture
-    gesture = await wait_for_gesture(wand)
+    # Wait for the actual gesture.  A BLE failure during capture returns
+    # control here so the repetition can be retried rather than saving bad data.
+    try:
+        gesture = await wait_for_gesture(wand)
+    except RuntimeError as e:
+        print()
+        print(f"Recording attempt failed: {e}")
+        return None
 
     # Make sure we actually captured data
     motion_count = len(gesture.motion)
@@ -302,7 +357,10 @@ async def main():
             print(f" {spell}")
             print("#" * 70)
 
-            for repetition in range(1, REPETITIONS + 1):
+            repetition = 1
+            while repetition <= REPETITIONS:
+                if not await ensure_connected(wand):
+                    raise RuntimeError("Unable to reconnect to the wand.")
 
                 result = await record_spell(
                     wand,
@@ -313,9 +371,18 @@ async def main():
 
                 if result is not None:
                     recordings.append(result)
+                    repetition += 1
+                else:
+                    print()
+                    print(
+                        f"Re-attempting {spell}, repetition {repetition}. "
+                        "No recording was saved."
+                    )
+                    await asyncio.sleep(1)
+                    continue
 
                 # Short pause between repetitions
-                if repetition < REPETITIONS:
+                if repetition <= REPETITIONS:
                     print()
                     print("Get ready for the next repetition...")
                     await asyncio.sleep(2)
