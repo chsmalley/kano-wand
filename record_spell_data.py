@@ -21,11 +21,11 @@ TRAINING_FOLDER = Path("training_data")
 REPETITIONS = 5
 
 spells = [
-    "Stupefy",
-    "Wingardium Leviosa",
-    "Reducio",
-    "Flipendo",
-    "Expelliarmus",
+    # "Stupefy",
+    # "Wingardium Leviosa",
+    # "Reducio",
+    # "Flipendo",
+    # "Expelliarmus",
     "Incendio",
     "Lumos",
     "Locomotor",
