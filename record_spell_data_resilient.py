@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 # Import your KanoWand class
-from kano_wand_stable import KanoWand
+from kano_wand import KanoWand
 
 # ----------------------------------------------------------------------
 # Configuration
@@ -145,13 +145,10 @@ def clear_spell_queue(wand):
 
 async def ensure_connected(wand):
     """Recover the BLE connection if Bleak reports it has been lost."""
-    if wand.shutdown_event.is_set():
-        return False
-
     if wand.bluetooth_disconnected.is_set() or not wand.client.is_connected:
         print()
         print("BLE connection is unavailable. Recovering...")
-        return await wand.reconnect(attempts=5, delay=2.0)
+        return await wand.reconnect(attempts=6, delay=2.5)
 
     return True
 

@@ -12,7 +12,7 @@
 # - BLE disconnect callback remains lightweight.
 
 import asyncio
-from bleak import BleakClient
+from bleak import BleakClient, BleakScanner
 import numpy as np
 import zmq
 import time
@@ -189,6 +189,7 @@ class KanoWand:
         self._connecting = False
         self._connected_ready = False
         self._reconnect_lock = asyncio.Lock()
+        self._notifications_started = set()
 
         # Notification diagnostics.  These let us distinguish a real BLE
         # disconnect from a connection that remains "connected" but stops
@@ -211,44 +212,72 @@ class KanoWand:
         self.publisher.setsockopt(zmq.LINGER, 0)
         self.publisher.connect(f"tcp://{NERF_IP}:{NERF_PORT}")
 
-    async def connect(self):
+    async def connect(self, scan_timeout=10.0, connect_timeout=20.0):
+        """Scan for the wand, then connect using the discovered BLEDevice.
+
+        Using a discovered BLEDevice is more reliable on Linux/BlueZ than
+        repeatedly constructing BleakClient from the raw MAC address.
+        """
         self._disconnecting = False
         self._connecting = True
         self._connected_ready = False
         self.bluetooth_disconnected.clear()
+        self._notifications_started.clear()
 
-        print("Connecting to wand...")
+        print("Scanning for wand...")
 
         try:
-            await self.client.connect(timeout=30)
+            device = await BleakScanner.find_device_by_address(
+                self.address,
+                timeout=scan_timeout,
+            )
+            if device is None:
+                raise RuntimeError(
+                    f"Wand {self.address} was not found during Bluetooth scan."
+                )
+
+            print(f"Found wand: {device.name or 'Unknown'} ({device.address})")
+
+            # The scanner returns a BLEDevice with the BlueZ discovery state
+            # already established.  Bind the disconnect callback to this
+            # exact client instance so stale callbacks can be ignored.
+            self.client = BleakClient(
+                device,
+                disconnected_callback=self.disconnected_callback,
+            )
+
+            print("Connecting to wand...")
+            await self.client.connect(timeout=connect_timeout)
 
             if not self.client.is_connected:
                 raise RuntimeError("Wand did not report as connected.")
 
             print("Connected:", self.client.is_connected)
 
-            # Give BlueZ/the wand a short settling period.
+            # Give BlueZ/the wand a short settling period before enabling the
+            # notification characteristics.
             await asyncio.sleep(0.5)
 
-            await self.client.start_notify(
-                MOTION_UUID, self.motion_handler
-            )
+            await self.client.start_notify(MOTION_UUID, self.motion_handler)
+            self._notifications_started.add(MOTION_UUID)
             await asyncio.sleep(0.15)
 
-            await self.client.start_notify(
-                QUATERNIONS_UUID, self.orientation_handler
-            )
+            await self.client.start_notify(QUATERNIONS_UUID, self.orientation_handler)
+            self._notifications_started.add(QUATERNIONS_UUID)
             await asyncio.sleep(0.15)
 
-            await self.client.start_notify(
-                BUTTON_UUID, self.button_handler
-            )
+            await self.client.start_notify(BUTTON_UUID, self.button_handler)
+            self._notifications_started.add(BUTTON_UUID)
+
             self._connecting = False
             self._connected_ready = True
             self.bluetooth_disconnected.clear()
             self.shutdown_event.clear()
-
-            self.last_notification_time = time.monotonic()
+            now = time.monotonic()
+            self.last_notification_time = now
+            self.last_motion_time = now
+            self.last_orientation_time = now
+            self.last_button_time = now
             print("Notifications started")
 
         except Exception:
@@ -256,19 +285,23 @@ class KanoWand:
             self._connected_ready = False
             self._disconnecting = True
             try:
+                for uuid in tuple(self._notifications_started):
+                    try:
+                        await self.client.stop_notify(uuid)
+                    except Exception:
+                        pass
+                self._notifications_started.clear()
                 if self.client.is_connected:
-                    await self.client.disconnect()
-            except Exception:
-                pass
-            self._disconnecting = False
+                    try:
+                        await self.client.disconnect()
+                    except Exception:
+                        pass
+            finally:
+                self._disconnecting = False
             raise
 
-    async def reconnect(self, attempts=3, delay=2.0):
-        """Reconnect using a fresh BleakClient.
-
-        Reconnects are serialized so a recorder/watchdog cannot start two
-        Bluetooth recovery operations at the same time.
-        """
+    async def reconnect(self, attempts=5, delay=2.0):
+        """Recover a lost connection using a fresh scan and BLE client."""
         async with self._reconnect_lock:
             print("Attempting to reconnect to wand...")
 
@@ -277,14 +310,18 @@ class KanoWand:
             self._connected_ready = False
 
             for attempt in range(1, attempts + 1):
-                if self.shutdown_event.is_set():
-                    return False
-
                 print(f"Reconnect attempt {attempt} of {attempts}...")
-
                 try:
                     self._disconnecting = True
                     self._connecting = False
+                    self._connected_ready = False
+
+                    for uuid in tuple(self._notifications_started):
+                        try:
+                            await self.client.stop_notify(uuid)
+                        except Exception:
+                            pass
+                    self._notifications_started.clear()
 
                     try:
                         if self.client.is_connected:
@@ -293,34 +330,27 @@ class KanoWand:
                         pass
 
                     self._disconnecting = False
+                    self.bluetooth_disconnected.clear()
                     await asyncio.sleep(delay)
 
-                    # Old Bleak callbacks can arrive after disconnect.
-                    # A fresh client gives BlueZ/Bleak a clean connection.
-                    self.client = BleakClient(
-                        self.address,
-                        disconnected_callback=self.disconnected_callback
-                    )
-
-                    await self.connect()
+                    await self.connect(scan_timeout=12.0, connect_timeout=25.0)
                     print("Reconnected successfully.")
                     return True
 
                 except Exception as e:
                     self._disconnecting = True
                     self._connecting = False
+                    self._connected_ready = False
                     try:
                         if self.client.is_connected:
                             await self.client.disconnect()
                     except Exception:
                         pass
                     self._disconnecting = False
-
                     print(
                         f"Reconnect attempt {attempt} failed: "
                         f"{type(e).__name__}: {e}"
                     )
-
                     if attempt < attempts:
                         await asyncio.sleep(delay)
 
@@ -340,41 +370,45 @@ class KanoWand:
         print("Disconnecting wand...")
 
         try:
-            if self.client.is_connected:
-                for uuid in (
-                    BUTTON_UUID,
-                    MOTION_UUID,
-                    QUATERNIONS_UUID
-                ):
-                    try:
+            for uuid in tuple(self._notifications_started):
+                try:
+                    if self.client.is_connected:
                         await self.client.stop_notify(uuid)
-                    except Exception as e:
+                except Exception as e:
+                    # Shutdown should remain best-effort.  In particular,
+                    # don't report service-discovery errors as a new BLE fault.
+                    if "Service Discovery has not been performed" not in str(e):
                         print(
                             f"Could not stop notification {uuid}: "
                             f"{type(e).__name__}: {e}"
                         )
+            self._notifications_started.clear()
 
-                try:
+            try:
+                if self.client.is_connected:
                     await self.client.disconnect()
-                except Exception as e:
-                    print(
-                        f"Error disconnecting Bluetooth: "
-                        f"{type(e).__name__}: {e}"
-                    )
+            except Exception as e:
+                print(
+                    f"Error disconnecting Bluetooth: "
+                    f"{type(e).__name__}: {e}"
+                )
         finally:
             try:
                 self.publisher.close(linger=0)
             except Exception:
                 pass
-
             try:
                 self.context.term()
             except Exception:
                 pass
-
             print("Wand disconnected")
-    
+
     def disconnected_callback(self, client):
+        # Ignore callbacks from a previous BleakClient after a reconnect.
+        if client is not self.client:
+            print("Ignoring disconnect callback from stale BLE client.")
+            return
+
         if self._disconnecting:
             return
 
@@ -384,14 +418,27 @@ class KanoWand:
 
         if not self._connected_ready:
             return
-        
+
         print()
         print("WARNING: Wand Bluetooth connection was lost!")
-        print("Stopping application...")
+        print(
+            "Notifications before disconnect: "
+            f"motion={self.notification_counts['motion']}, "
+            f"orientation={self.notification_counts['orientation']}, "
+            f"button={self.notification_counts['button']}"
+        )
+        print(
+            "Button events before disconnect: "
+            f"down={self.button_down_count}, "
+            f"up={self.button_up_count}"
+        )
+
+        # IMPORTANT: do not set shutdown_event here.  The training recorder
+        # needs to be able to recover the BLE connection instead of terminating
+        # the entire data-collection session.
         self.bluetooth_disconnected.set()
         self.recording = False
         self.button_pressed = False
-        self.shutdown_event.set()
 
     def orientation_handler(self, sender, data):
         try:
