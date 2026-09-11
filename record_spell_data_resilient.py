@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 # Import your KanoWand class
-from kano_wand import KanoWand
+from kano_wand_stable import KanoWand
 
 # ----------------------------------------------------------------------
 # Configuration
