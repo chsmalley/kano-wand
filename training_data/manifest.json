@@ -1,0 +1,428 @@
+{
+  "created_at": 1789251850.8145146,
+  "num_spells": 12,
+  "repetitions_per_spell": 5,
+  "num_recordings": 60,
+  "recordings": [
+    {
+      "spell": "Stupefy",
+      "repetition": 1,
+      "file": "training_data/Stupefy/recording_001.json",
+      "motion_samples": 30,
+      "orientation_samples": 30
+    },
+    {
+      "spell": "Stupefy",
+      "repetition": 2,
+      "file": "training_data/Stupefy/recording_002.json",
+      "motion_samples": 30,
+      "orientation_samples": 31
+    },
+    {
+      "spell": "Stupefy",
+      "repetition": 3,
+      "file": "training_data/Stupefy/recording_003.json",
+      "motion_samples": 54,
+      "orientation_samples": 57
+    },
+    {
+      "spell": "Stupefy",
+      "repetition": 4,
+      "file": "training_data/Stupefy/recording_004.json",
+      "motion_samples": 32,
+      "orientation_samples": 32
+    },
+    {
+      "spell": "Stupefy",
+      "repetition": 5,
+      "file": "training_data/Stupefy/recording_005.json",
+      "motion_samples": 35,
+      "orientation_samples": 33
+    },
+    {
+      "spell": "Wingardium Leviosa",
+      "repetition": 1,
+      "file": "training_data/Wingardium_Leviosa/recording_001.json",
+      "motion_samples": 25,
+      "orientation_samples": 27
+    },
+    {
+      "spell": "Wingardium Leviosa",
+      "repetition": 2,
+      "file": "training_data/Wingardium_Leviosa/recording_002.json",
+      "motion_samples": 28,
+      "orientation_samples": 28
+    },
+    {
+      "spell": "Wingardium Leviosa",
+      "repetition": 3,
+      "file": "training_data/Wingardium_Leviosa/recording_003.json",
+      "motion_samples": 27,
+      "orientation_samples": 27
+    },
+    {
+      "spell": "Wingardium Leviosa",
+      "repetition": 4,
+      "file": "training_data/Wingardium_Leviosa/recording_004.json",
+      "motion_samples": 24,
+      "orientation_samples": 25
+    },
+    {
+      "spell": "Wingardium Leviosa",
+      "repetition": 5,
+      "file": "training_data/Wingardium_Leviosa/recording_005.json",
+      "motion_samples": 46,
+      "orientation_samples": 48
+    },
+    {
+      "spell": "Reducio",
+      "repetition": 1,
+      "file": "training_data/Reducio/recording_001.json",
+      "motion_samples": 28,
+      "orientation_samples": 28
+    },
+    {
+      "spell": "Reducio",
+      "repetition": 2,
+      "file": "training_data/Reducio/recording_002.json",
+      "motion_samples": 23,
+      "orientation_samples": 25
+    },
+    {
+      "spell": "Reducio",
+      "repetition": 3,
+      "file": "training_data/Reducio/recording_003.json",
+      "motion_samples": 26,
+      "orientation_samples": 25
+    },
+    {
+      "spell": "Reducio",
+      "repetition": 4,
+      "file": "training_data/Reducio/recording_004.json",
+      "motion_samples": 23,
+      "orientation_samples": 24
+    },
+    {
+      "spell": "Reducio",
+      "repetition": 5,
+      "file": "training_data/Reducio/recording_005.json",
+      "motion_samples": 28,
+      "orientation_samples": 27
+    },
+    {
+      "spell": "Flipendo",
+      "repetition": 1,
+      "file": "training_data/Flipendo/recording_001.json",
+      "motion_samples": 31,
+      "orientation_samples": 32
+    },
+    {
+      "spell": "Flipendo",
+      "repetition": 2,
+      "file": "training_data/Flipendo/recording_002.json",
+      "motion_samples": 31,
+      "orientation_samples": 33
+    },
+    {
+      "spell": "Flipendo",
+      "repetition": 3,
+      "file": "training_data/Flipendo/recording_003.json",
+      "motion_samples": 28,
+      "orientation_samples": 29
+    },
+    {
+      "spell": "Flipendo",
+      "repetition": 4,
+      "file": "training_data/Flipendo/recording_004.json",
+      "motion_samples": 29,
+      "orientation_samples": 28
+    },
+    {
+      "spell": "Flipendo",
+      "repetition": 5,
+      "file": "training_data/Flipendo/recording_005.json",
+      "motion_samples": 29,
+      "orientation_samples": 28
+    },
+    {
+      "spell": "Expelliarmus",
+      "repetition": 1,
+      "file": "training_data/Expelliarmus/recording_001.json",
+      "motion_samples": 26,
+      "orientation_samples": 28
+    },
+    {
+      "spell": "Expelliarmus",
+      "repetition": 2,
+      "file": "training_data/Expelliarmus/recording_002.json",
+      "motion_samples": 24,
+      "orientation_samples": 23
+    },
+    {
+      "spell": "Expelliarmus",
+      "repetition": 3,
+      "file": "training_data/Expelliarmus/recording_003.json",
+      "motion_samples": 75,
+      "orientation_samples": 74
+    },
+    {
+      "spell": "Expelliarmus",
+      "repetition": 4,
+      "file": "training_data/Expelliarmus/recording_004.json",
+      "motion_samples": 39,
+      "orientation_samples": 40
+    },
+    {
+      "spell": "Expelliarmus",
+      "repetition": 5,
+      "file": "training_data/Expelliarmus/recording_005.json",
+      "motion_samples": 27,
+      "orientation_samples": 26
+    },
+    {
+      "spell": "Incendio",
+      "repetition": 1,
+      "file": "training_data/Incendio/recording_001.json",
+      "motion_samples": 38,
+      "orientation_samples": 35
+    },
+    {
+      "spell": "Incendio",
+      "repetition": 2,
+      "file": "training_data/Incendio/recording_002.json",
+      "motion_samples": 6,
+      "orientation_samples": 8
+    },
+    {
+      "spell": "Incendio",
+      "repetition": 3,
+      "file": "training_data/Incendio/recording_003.json",
+      "motion_samples": 72,
+      "orientation_samples": 68
+    },
+    {
+      "spell": "Incendio",
+      "repetition": 4,
+      "file": "training_data/Incendio/recording_004.json",
+      "motion_samples": 66,
+      "orientation_samples": 56
+    },
+    {
+      "spell": "Incendio",
+      "repetition": 5,
+      "file": "training_data/Incendio/recording_005.json",
+      "motion_samples": 70,
+      "orientation_samples": 72
+    },
+    {
+      "spell": "Lumos",
+      "repetition": 1,
+      "file": "training_data/Lumos/recording_001.json",
+      "motion_samples": 74,
+      "orientation_samples": 72
+    },
+    {
+      "spell": "Lumos",
+      "repetition": 2,
+      "file": "training_data/Lumos/recording_002.json",
+      "motion_samples": 52,
+      "orientation_samples": 52
+    },
+    {
+      "spell": "Lumos",
+      "repetition": 3,
+      "file": "training_data/Lumos/recording_003.json",
+      "motion_samples": 46,
+      "orientation_samples": 44
+    },
+    {
+      "spell": "Lumos",
+      "repetition": 4,
+      "file": "training_data/Lumos/recording_004.json",
+      "motion_samples": 40,
+      "orientation_samples": 44
+    },
+    {
+      "spell": "Lumos",
+      "repetition": 5,
+      "file": "training_data/Lumos/recording_005.json",
+      "motion_samples": 48,
+      "orientation_samples": 50
+    },
+    {
+      "spell": "Locomotor",
+      "repetition": 1,
+      "file": "training_data/Locomotor/recording_001.json",
+      "motion_samples": 74,
+      "orientation_samples": 74
+    },
+    {
+      "spell": "Locomotor",
+      "repetition": 2,
+      "file": "training_data/Locomotor/recording_002.json",
+      "motion_samples": 66,
+      "orientation_samples": 66
+    },
+    {
+      "spell": "Locomotor",
+      "repetition": 3,
+      "file": "training_data/Locomotor/recording_003.json",
+      "motion_samples": 64,
+      "orientation_samples": 62
+    },
+    {
+      "spell": "Locomotor",
+      "repetition": 4,
+      "file": "training_data/Locomotor/recording_004.json",
+      "motion_samples": 112,
+      "orientation_samples": 110
+    },
+    {
+      "spell": "Locomotor",
+      "repetition": 5,
+      "file": "training_data/Locomotor/recording_005.json",
+      "motion_samples": 70,
+      "orientation_samples": 72
+    },
+    {
+      "spell": "Engorgio",
+      "repetition": 1,
+      "file": "training_data/Engorgio/recording_001.json",
+      "motion_samples": 86,
+      "orientation_samples": 86
+    },
+    {
+      "spell": "Engorgio",
+      "repetition": 2,
+      "file": "training_data/Engorgio/recording_002.json",
+      "motion_samples": 52,
+      "orientation_samples": 54
+    },
+    {
+      "spell": "Engorgio",
+      "repetition": 3,
+      "file": "training_data/Engorgio/recording_003.json",
+      "motion_samples": 54,
+      "orientation_samples": 54
+    },
+    {
+      "spell": "Engorgio",
+      "repetition": 4,
+      "file": "training_data/Engorgio/recording_004.json",
+      "motion_samples": 50,
+      "orientation_samples": 48
+    },
+    {
+      "spell": "Engorgio",
+      "repetition": 5,
+      "file": "training_data/Engorgio/recording_005.json",
+      "motion_samples": 48,
+      "orientation_samples": 48
+    },
+    {
+      "spell": "Aguamenti",
+      "repetition": 1,
+      "file": "training_data/Aguamenti/recording_001.json",
+      "motion_samples": 42,
+      "orientation_samples": 42
+    },
+    {
+      "spell": "Aguamenti",
+      "repetition": 2,
+      "file": "training_data/Aguamenti/recording_002.json",
+      "motion_samples": 38,
+      "orientation_samples": 40
+    },
+    {
+      "spell": "Aguamenti",
+      "repetition": 3,
+      "file": "training_data/Aguamenti/recording_003.json",
+      "motion_samples": 44,
+      "orientation_samples": 44
+    },
+    {
+      "spell": "Aguamenti",
+      "repetition": 4,
+      "file": "training_data/Aguamenti/recording_004.json",
+      "motion_samples": 42,
+      "orientation_samples": 44
+    },
+    {
+      "spell": "Aguamenti",
+      "repetition": 5,
+      "file": "training_data/Aguamenti/recording_005.json",
+      "motion_samples": 42,
+      "orientation_samples": 42
+    },
+    {
+      "spell": "Avis",
+      "repetition": 1,
+      "file": "training_data/Avis/recording_001.json",
+      "motion_samples": 58,
+      "orientation_samples": 58
+    },
+    {
+      "spell": "Avis",
+      "repetition": 2,
+      "file": "training_data/Avis/recording_002.json",
+      "motion_samples": 62,
+      "orientation_samples": 62
+    },
+    {
+      "spell": "Avis",
+      "repetition": 3,
+      "file": "training_data/Avis/recording_003.json",
+      "motion_samples": 30,
+      "orientation_samples": 30
+    },
+    {
+      "spell": "Avis",
+      "repetition": 4,
+      "file": "training_data/Avis/recording_004.json",
+      "motion_samples": 30,
+      "orientation_samples": 31
+    },
+    {
+      "spell": "Avis",
+      "repetition": 5,
+      "file": "training_data/Avis/recording_005.json",
+      "motion_samples": 30,
+      "orientation_samples": 30
+    },
+    {
+      "spell": "Reducto",
+      "repetition": 1,
+      "file": "training_data/Reducto/recording_001.json",
+      "motion_samples": 20,
+      "orientation_samples": 21
+    },
+    {
+      "spell": "Reducto",
+      "repetition": 2,
+      "file": "training_data/Reducto/recording_002.json",
+      "motion_samples": 64,
+      "orientation_samples": 65
+    },
+    {
+      "spell": "Reducto",
+      "repetition": 3,
+      "file": "training_data/Reducto/recording_003.json",
+      "motion_samples": 24,
+      "orientation_samples": 25
+    },
+    {
+      "spell": "Reducto",
+      "repetition": 4,
+      "file": "training_data/Reducto/recording_004.json",
+      "motion_samples": 29,
+      "orientation_samples": 28
+    },
+    {
+      "spell": "Reducto",
+      "repetition": 5,
+      "file": "training_data/Reducto/recording_005.json",
+      "motion_samples": 33,
+      "orientation_samples": 33
+    }
+  ]
+}
