@@ -14,7 +14,12 @@ import joblib
 # Configuration
 # ----------------------------------------------------------------------
 
-TRAINING_FOLDER = Path("training_data")
+TRAINING_FOLDERS = [
+    Path("training_data"),
+    Path("training_data_1"),
+    Path("training_data_2"),
+    Path("training_data_3"),
+    ]
 MODEL_FILE = "spell_classifier.joblib"
 
 # Number of time points every gesture will be converted to.
@@ -204,16 +209,13 @@ def gesture_to_features(gesture):
 # Load entire training dataset
 # ----------------------------------------------------------------------
 
-def load_training_data():
-
-    X = []
-    y = []
+def load_training_data(training_folder, X, y):
 
     print()
     print("Loading training data...")
     print()
 
-    for spell_folder in sorted(TRAINING_FOLDER.iterdir()):
+    for spell_folder in sorted(training_folder.iterdir()):
 
         if not spell_folder.is_dir():
             continue
@@ -245,7 +247,7 @@ def load_training_data():
                     f"ERROR reading {filepath}: {e}"
                 )
 
-    return np.asarray(X), np.asarray(y)
+    return X, y
 
 
 # ----------------------------------------------------------------------
@@ -368,23 +370,25 @@ def train_classifier(X, y):
 # ----------------------------------------------------------------------
 
 def main():
+    X = []
+    y = []
+    for training_folder in TRAINING_FOLDERS:
+        if not training_folder.exists():
+            print(
+                f"Training folder does not exist: "
+                f"{training_folder}"
+            )
+            return
 
-    if not TRAINING_FOLDER.exists():
-        print(
-            f"Training folder does not exist: "
-            f"{TRAINING_FOLDER}"
-        )
-        return
+        X, y = load_training_data(training_folder, X, y)
 
-    X, y = load_training_data()
-
-    if len(X) == 0:
-        print("No training data found.")
-        return
+        if len(X) == 0:
+            print("No training data found.")
+            return
 
     classifier = train_classifier(
-        X,
-        y
+        np.asarray(X),
+        np.asarray(y)
     )
 
 

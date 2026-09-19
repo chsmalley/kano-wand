@@ -13,7 +13,8 @@ from kano_wand_stable import KanoWand
 # Configuration
 # ----------------------------------------------------------------------
 
-WAND_ADDRESS = "D0:1F:65:71:51:32"
+# WAND_ADDRESS = "D0:1F:65:71:51:32"  # OG
+WAND_ADDRESS = "DA:94:FD:35:20:15"  # 2
 
 TRAINING_FOLDER = Path("training_data")
 

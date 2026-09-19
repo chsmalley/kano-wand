@@ -39,8 +39,8 @@ QUATERNIONS_UUID = "64A70002-F691-4B93-A6F4-0968F5B648F8"
 MOTION_UUID = "64A7000C-F691-4B93-A6F4-0968F5B648F8"
 MAGN_CALIBRATE_UUID = "64A70021-F691-4B93-A6F4-0968F5B648F8"
 QUATERNIONS_RESET_UUID = "64A70004-F691-4B93-A6F4-0968F5B648F8"
-WAND_ADDRESS = "D0:1F:65:71:51:32"
-
+# WAND_ADDRESS = "D0:1F:65:71:51:32"  # OG
+WAND_ADDRESS = "DA:94:FD:35:20:15"  # 2
 NERF_IP = "192.168.0.26"
 NERF_PORT = 5555
 
@@ -262,9 +262,9 @@ class KanoWand:
             self._notifications_started.add(MOTION_UUID)
             await asyncio.sleep(0.15)
 
-            await self.client.start_notify(QUATERNIONS_UUID, self.orientation_handler)
-            self._notifications_started.add(QUATERNIONS_UUID)
-            await asyncio.sleep(0.15)
+            # await self.client.start_notify(QUATERNIONS_UUID, self.orientation_handler)
+            # self._notifications_started.add(QUATERNIONS_UUID)
+            # await asyncio.sleep(0.15)
 
             await self.client.start_notify(BUTTON_UUID, self.button_handler)
             self._notifications_started.add(BUTTON_UUID)
@@ -424,7 +424,7 @@ class KanoWand:
         print(
             "Notifications before disconnect: "
             f"motion={self.notification_counts['motion']}, "
-            f"orientation={self.notification_counts['orientation']}, "
+            # f"orientation={self.notification_counts['orientation']}, "
             f"button={self.notification_counts['button']}"
         )
         print(
