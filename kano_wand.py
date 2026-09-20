@@ -12,23 +12,32 @@
 # - BLE disconnect callback remains lightweight.
 
 import asyncio
-from bleak import BleakClient
+import json
+import os
+from bleak import BleakClient, BleakScanner
 import numpy as np
 import zmq
 import time
 import queue
+import random
 import threading
 from dataclasses import dataclass, field
 import joblib
+from dtw_classifier import DTWNearestNeighborClassifier
 
-MODEL_FILE = "spell_classifier.joblib"
+CLASSIFIER_TYPE = os.getenv("SPELL_CLASSIFIER", "extra_trees").lower()
+MODEL_FILE = (
+    "dtw_spell_classifier.joblib"
+    if CLASSIFIER_TYPE == "dtw"
+    else "spell_classifier.joblib"
+)
 NUM_SAMPLES = 100
-UNKNOWN_CONFIDENCE_THRESHOLD = 0.65
+UNKNOWN_CONFIDENCE_THRESHOLD = 0.40
 UNKNOWN_MARGIN_THRESHOLD = 0.15
 
 try:
     classifier = joblib.load(MODEL_FILE)
-    print(f"Loaded classifier: {MODEL_FILE}")
+    print(f"Loaded {CLASSIFIER_TYPE} classifier: {MODEL_FILE}")
 except FileNotFoundError:
     classifier = None
     print(f"WARNING: Classifier file not found: {MODEL_FILE}")
@@ -39,10 +48,18 @@ QUATERNIONS_UUID = "64A70002-F691-4B93-A6F4-0968F5B648F8"
 MOTION_UUID = "64A7000C-F691-4B93-A6F4-0968F5B648F8"
 MAGN_CALIBRATE_UUID = "64A70021-F691-4B93-A6F4-0968F5B648F8"
 QUATERNIONS_RESET_UUID = "64A70004-F691-4B93-A6F4-0968F5B648F8"
-WAND_ADDRESS = "D0:1F:65:71:51:32"
+# WAND_ADDRESS = "D0:1F:65:71:51:32"  # OG
+WAND_ADDRESS = os.getenv("WAND_ADDRESS", "DA:94:FD:35:20:15")
 
-NERF_IP = "192.168.0.26"
-NERF_PORT = 5555
+ZMQ_BIND_HOST = os.getenv("ZMQ_BIND_HOST", "0.0.0.0")
+ZMQ_PORT = int(os.getenv("ZMQ_PORT", "5555"))
+NOTIFICATION_TIMEOUT = float(
+    os.getenv("WAND_NOTIFICATION_TIMEOUT", "5.0")
+)
+RECONNECT_DELAY = float(os.getenv("WAND_RECONNECT_DELAY", "2.0"))
+RECONNECT_MAX_DELAY = float(
+    os.getenv("WAND_RECONNECT_MAX_DELAY", "30.0")
+)
 
 
 def interpolate_stream(samples, timestamps, num_samples):
@@ -188,112 +205,218 @@ class KanoWand:
         self._disconnecting = False
         self._connecting = False
         self._connected_ready = False
+        self._reconnect_lock = asyncio.Lock()
+        self._notifications_started = set()
+
+        # Notification diagnostics.  These let us distinguish a real BLE
+        # disconnect from a connection that remains "connected" but stops
+        # delivering notifications.
+        self.notification_counts = {
+            "motion": 0,
+            "orientation": 0,
+            "button": 0,
+        }
+        self.invalid_packet_counts = {
+            "motion": 0,
+            "orientation": 0,
+            "button": 0,
+        }
+        self.button_down_count = 0
+        self.button_up_count = 0
+
+        # Per-characteristic timing diagnostics.  These are intentionally
+        # lightweight so they do not add meaningful work to BLE callbacks.
+        self._last_notification_times = {
+            "motion": None,
+            "orientation": None,
+            "button": None,
+        }
+        self.notification_gap_stats = {
+            name: {
+                "count": 0,
+                "max_gap": 0.0,
+                "sum_gap": 0.0,
+                "gaps_over_0_1": 0,
+                "gaps_over_0_2": 0,
+                "gaps_over_0_5": 0,
+            }
+            for name in ("motion", "orientation", "button")
+        }
+        self.button_transition_log = []
+        self.gesture_start_time = None
+        self.gesture_end_time = None
 
         self.context = zmq.Context()
         self.publisher = self.context.socket(zmq.PUB)
         self.publisher.setsockopt(zmq.LINGER, 0)
-        self.publisher.connect(f"tcp://{NERF_IP}:{NERF_PORT}")
+        self.publisher.bind(f"tcp://{ZMQ_BIND_HOST}:{ZMQ_PORT}")
 
-    async def connect(self):
+    def publish_spell(self, spell, confidence, top_predictions):
+        """Publish a classified spell as a JSON message over ZeroMQ."""
+        message = {
+            "spell": spell,
+            "confidence": confidence,
+            "top_predictions": [
+                {
+                    "spell": prediction,
+                    "confidence": probability,
+                }
+                for prediction, probability in top_predictions[:3]
+            ],
+            "timestamp": time.time(),
+        }
+        self.publisher.send_string(json.dumps(message))
+
+    async def connect(self, scan_timeout=10.0, connect_timeout=20.0):
+        """Scan for the wand, then connect using the discovered BLEDevice.
+
+        Using a discovered BLEDevice is more reliable on Linux/BlueZ than
+        repeatedly constructing BleakClient from the raw MAC address.
+        """
         self._disconnecting = False
+        self._connecting = True
+        self._connected_ready = False
+        self.bluetooth_disconnected.clear()
+        self._notifications_started.clear()
 
-        print("Connecting to wand...")
+        print("Scanning for wand...")
 
         try:
-            await self.client.connect(timeout=30)
+            device = await BleakScanner.find_device_by_address(
+                self.address,
+                timeout=scan_timeout,
+            )
+            if device is None:
+                raise RuntimeError(
+                    f"Wand {self.address} was not found during Bluetooth scan."
+                )
+
+            print(f"Found wand: {device.name or 'Unknown'} ({device.address})")
+
+            # The scanner returns a BLEDevice with the BlueZ discovery state
+            # already established.  Bind the disconnect callback to this
+            # exact client instance so stale callbacks can be ignored.
+            self.client = BleakClient(
+                device,
+                disconnected_callback=self.disconnected_callback,
+            )
+
+            print("Connecting to wand...")
+            await self.client.connect(timeout=connect_timeout)
 
             if not self.client.is_connected:
                 raise RuntimeError("Wand did not report as connected.")
 
             print("Connected:", self.client.is_connected)
 
-            # Give BlueZ/the wand a short settling period.
+            # Give BlueZ/the wand a short settling period before enabling the
+            # notification characteristics.
             await asyncio.sleep(0.5)
 
-            await self.client.start_notify(
-                MOTION_UUID, self.motion_handler
-            )
+            # Subscribe to the button first so a press/release cannot be
+            # missed while the higher-volume sensor notifications start.
+            await self.client.start_notify(BUTTON_UUID, self.button_handler)
+            self._notifications_started.add(BUTTON_UUID)
+            await asyncio.sleep(0.15)
+
+            await self.client.start_notify(MOTION_UUID, self.motion_handler)
+            self._notifications_started.add(MOTION_UUID)
             await asyncio.sleep(0.15)
 
             await self.client.start_notify(
-                QUATERNIONS_UUID, self.orientation_handler
+                QUATERNIONS_UUID,
+                self.orientation_handler,
             )
-            await asyncio.sleep(0.15)
+            self._notifications_started.add(QUATERNIONS_UUID)
 
-            await self.client.start_notify(
-                BUTTON_UUID, self.button_handler
-            )
             self._connecting = False
             self._connected_ready = True
             self.bluetooth_disconnected.clear()
             self.shutdown_event.clear()
-
-            self.last_notification_time = time.monotonic()
+            now = time.monotonic()
+            self.last_notification_time = now
+            self.last_motion_time = now
+            self.last_orientation_time = now
+            self.last_button_time = now
             print("Notifications started")
 
         except Exception:
+            self._connecting = False
+            self._connected_ready = False
             self._disconnecting = True
             try:
+                for uuid in tuple(self._notifications_started):
+                    try:
+                        await self.client.stop_notify(uuid)
+                    except Exception:
+                        pass
+                self._notifications_started.clear()
                 if self.client.is_connected:
-                    await self.client.disconnect()
-            except Exception:
-                pass
-            self._disconnecting = False
+                    try:
+                        await self.client.disconnect()
+                    except Exception:
+                        pass
+            finally:
+                self._disconnecting = False
             raise
 
-    async def reconnect(self, attempts=3, delay=2.0):
-        print("Attempting to reconnect to wand...")
+    async def reconnect(self, attempts=5, delay=2.0):
+        """Recover a lost connection using a fresh scan and BLE client."""
+        async with self._reconnect_lock:
+            print("Attempting to reconnect to wand...")
 
-        self.recording = False
-        self.button_pressed = False
+            self.recording = False
+            self.button_pressed = False
+            self._connected_ready = False
 
-        for attempt in range(1, attempts + 1):
-            if self.shutdown_event.is_set():
-                return False
-
-            print(f"Reconnect attempt {attempt} of {attempts}...")
-
-            try:
-                self._disconnecting = True
+            for attempt in range(1, attempts + 1):
+                print(f"Reconnect attempt {attempt} of {attempts}...")
                 try:
-                    if self.client.is_connected:
-                        await self.client.disconnect()
-                except Exception:
-                    pass
-                self._disconnecting = False
+                    self._disconnecting = True
+                    self._connecting = False
+                    self._connected_ready = False
 
-                await asyncio.sleep(delay)
+                    for uuid in tuple(self._notifications_started):
+                        try:
+                            await self.client.stop_notify(uuid)
+                        except Exception:
+                            pass
+                    self._notifications_started.clear()
 
-                # Fresh client avoids stale BlueZ/Bleak state.
-                self.client = BleakClient(
-                    self.address,
-                    disconnected_callback=self.disconnected_callback
-                )
+                    try:
+                        if self.client.is_connected:
+                            await self.client.disconnect()
+                    except Exception:
+                        pass
 
-                await self.connect()
-                print("Reconnected successfully.")
-                return True
+                    self._disconnecting = False
+                    self.bluetooth_disconnected.clear()
+                    if delay > 0:
+                        await asyncio.sleep(delay)
 
-            except Exception as e:
-                self._disconnecting = True
-                try:
-                    if self.client.is_connected:
-                        await self.client.disconnect()
-                except Exception:
-                    pass
-                self._disconnecting = False
+                    await self.connect(scan_timeout=12.0, connect_timeout=25.0)
+                    print("Reconnected successfully.")
+                    return True
 
-                print(
-                    f"Reconnect attempt {attempt} failed: "
-                    f"{type(e).__name__}: {e}"
-                )
+                except Exception as e:
+                    self._disconnecting = True
+                    self._connecting = False
+                    self._connected_ready = False
+                    try:
+                        if self.client.is_connected:
+                            await self.client.disconnect()
+                    except Exception:
+                        pass
+                    self._disconnecting = False
+                    print(
+                        f"Reconnect attempt {attempt} failed: "
+                        f"{type(e).__name__}: {e}"
+                    )
+                    if attempt < attempts:
+                        await asyncio.sleep(delay)
 
-                if attempt < attempts:
-                    await asyncio.sleep(delay)
-
-        print("Unable to reconnect to wand.")
-        self.shutdown_event.set()
-        return False
+            print("Unable to reconnect to wand after this retry batch.")
+            return False
 
     async def disconnect(self):
         if self._disconnecting:
@@ -308,41 +431,45 @@ class KanoWand:
         print("Disconnecting wand...")
 
         try:
-            if self.client.is_connected:
-                for uuid in (
-                    BUTTON_UUID,
-                    MOTION_UUID,
-                    QUATERNIONS_UUID
-                ):
-                    try:
+            for uuid in tuple(self._notifications_started):
+                try:
+                    if self.client.is_connected:
                         await self.client.stop_notify(uuid)
-                    except Exception as e:
+                except Exception as e:
+                    # Shutdown should remain best-effort.  In particular,
+                    # don't report service-discovery errors as a new BLE fault.
+                    if "Service Discovery has not been performed" not in str(e):
                         print(
                             f"Could not stop notification {uuid}: "
                             f"{type(e).__name__}: {e}"
                         )
+            self._notifications_started.clear()
 
-                try:
+            try:
+                if self.client.is_connected:
                     await self.client.disconnect()
-                except Exception as e:
-                    print(
-                        f"Error disconnecting Bluetooth: "
-                        f"{type(e).__name__}: {e}"
-                    )
+            except Exception as e:
+                print(
+                    f"Error disconnecting Bluetooth: "
+                    f"{type(e).__name__}: {e}"
+                )
         finally:
             try:
                 self.publisher.close(linger=0)
             except Exception:
                 pass
-
             try:
                 self.context.term()
             except Exception:
                 pass
-
             print("Wand disconnected")
-    
+
     def disconnected_callback(self, client):
+        # Ignore callbacks from a previous BleakClient after a reconnect.
+        if client is not self.client:
+            print("Ignoring disconnect callback from stale BLE client.")
+            return
+
         if self._disconnecting:
             return
 
@@ -352,30 +479,95 @@ class KanoWand:
 
         if not self._connected_ready:
             return
-        
+
         print()
         print("WARNING: Wand Bluetooth connection was lost!")
-        print("Stopping application...")
+        print(
+            "Notifications before disconnect: "
+            f"motion={self.notification_counts['motion']}, "
+            f"orientation={self.notification_counts['orientation']}, "
+            f"button={self.notification_counts['button']}"
+        )
+        print(
+            "Button events before disconnect: "
+            f"down={self.button_down_count}, "
+            f"up={self.button_up_count}"
+        )
+
+        # IMPORTANT: do not set shutdown_event here.  The training recorder
+        # needs to be able to recover the BLE connection instead of terminating
+        # the entire data-collection session.
         self.bluetooth_disconnected.set()
         self.recording = False
         self.button_pressed = False
-        self.shutdown_event.set()
+
+    def _record_notification_timing(self, kind, now):
+        """Record notification inter-arrival timing with O(1) callback work."""
+        previous = self._last_notification_times[kind]
+        self._last_notification_times[kind] = now
+        if previous is None:
+            return
+
+        gap = now - previous
+        stats = self.notification_gap_stats[kind]
+        stats["count"] += 1
+        stats["sum_gap"] += gap
+        if gap > stats["max_gap"]:
+            stats["max_gap"] = gap
+        if gap > 0.1:
+            stats["gaps_over_0_1"] += 1
+        if gap > 0.2:
+            stats["gaps_over_0_2"] += 1
+        if gap > 0.5:
+            stats["gaps_over_0_5"] += 1
+
+    def reset_gap_diagnostics(self):
+        """Reset only inter-arrival gap statistics before a new gesture."""
+        self._last_notification_times = {
+            "motion": None,
+            "orientation": None,
+            "button": None,
+        }
+        for stats in self.notification_gap_stats.values():
+            for key in stats:
+                stats[key] = 0 if key != "max_gap" and key != "sum_gap" else 0.0
+
+    def get_notification_diagnostics(self):
+        """Return a snapshot suitable for the recorder's per-gesture report."""
+        result = {}
+        for kind, stats in self.notification_gap_stats.items():
+            count = stats["count"]
+            result[kind] = {
+                "count": self.notification_counts[kind],
+                "mean_gap": (stats["sum_gap"] / count) if count else 0.0,
+                "max_gap": stats["max_gap"],
+                "gaps_over_0_1": stats["gaps_over_0_1"],
+                "gaps_over_0_2": stats["gaps_over_0_2"],
+                "gaps_over_0_5": stats["gaps_over_0_5"],
+            }
+        result["button_down"] = self.button_down_count
+        result["button_up"] = self.button_up_count
+        result["connected"] = bool(self.client.is_connected)
+        return result
 
     def orientation_handler(self, sender, data):
         try:
             if len(data) < 8:
+                self.invalid_packet_counts["orientation"] += 1
                 print(
                     f"WARNING: Invalid orientation packet: "
                     f"{len(data)} bytes"
                 )
                 return
 
+            self.notification_counts["orientation"] += 1
             orientation = self.decode_orientation(data)
             self.latest_orientation = orientation
 
             now = time.monotonic()
             self.last_orientation_time = now
             self.last_notification_time = now
+            self._record_notification_timing("orientation", now)
 
             if self.recording:
                 self.current_gesture.orientation.append(orientation)
@@ -389,18 +581,21 @@ class KanoWand:
     def motion_handler(self, sender, data):
         try:
             if len(data) < 18:
+                self.invalid_packet_counts["motion"] += 1
                 print(
                     f"WARNING: Invalid motion packet: "
                     f"{len(data)} bytes"
                 )
                 return
 
+            self.notification_counts["motion"] += 1
             motion = self.decode_motion(data)
             self.latest_motion = motion
 
             now = time.monotonic()
             self.last_motion_time = now
             self.last_notification_time = now
+            self._record_notification_timing("motion", now)
 
             if self.recording:
                 self.current_gesture.motion.append(motion)
@@ -414,21 +609,31 @@ class KanoWand:
     def button_handler(self, sender, data):
         try:
             if not data:
+                self.invalid_packet_counts["button"] += 1
                 print("WARNING: Empty button packet")
                 return
 
+            self.notification_counts["button"] += 1
             pressed = self.decode_button(data)
             now = time.monotonic()
             self.last_button_time = now
             self.last_notification_time = now
+            self._record_notification_timing("button", now)
+            self.button_transition_log.append((now, pressed))
+            if len(self.button_transition_log) > 100:
+                del self.button_transition_log[:-100]
 
             if pressed and not self.button_pressed:
+                self.button_down_count += 1
                 print("BUTTON DOWN")
                 self.button_pressed = True
                 self.recording = True
+                self.gesture_start_time = now
+                self.gesture_end_time = None
                 self.current_gesture = Gesture([], [])
 
             elif not pressed and self.button_pressed:
+                self.button_up_count += 1
                 print(
                     f"BUTTON UP - "
                     f"{len(self.current_gesture.motion)} motion samples, "
@@ -438,6 +643,7 @@ class KanoWand:
 
                 self.button_pressed = False
                 self.recording = False
+                self.gesture_end_time = now
 
                 if (
                     self.current_gesture.motion
@@ -488,6 +694,30 @@ class KanoWand:
         )
 
 
+def print_ble_diagnostics(wand):
+    now = time.monotonic()
+    diagnostics = wand.get_notification_diagnostics()
+    print(
+        "BLE diagnostics: "
+        f"connected={diagnostics['connected']}, "
+        f"motion={diagnostics['motion']['count']}, "
+        f"orientation={diagnostics['orientation']['count']}, "
+        f"button={diagnostics['button']['count']}, "
+        f"button_down={diagnostics['button_down']}, "
+        f"button_up={diagnostics['button_up']}, "
+        f"last_any={now - wand.last_notification_time:.2f}s ago"
+    )
+    for kind in ("motion", "orientation", "button"):
+        d = diagnostics[kind]
+        print(
+            f"  {kind:11s}: mean_gap={d['mean_gap']:.4f}s, "
+            f"max_gap={d['max_gap']:.4f}s, "
+            f">0.1s={d['gaps_over_0_1']}, "
+            f">0.2s={d['gaps_over_0_2']}, "
+            f">0.5s={d['gaps_over_0_5']}"
+        )
+
+
 def classify_worker(wand):
     print("Classifier thread started")
 
@@ -515,6 +745,16 @@ def classify_worker(wand):
                 print(
                     "The gesture was not classified with "
                     "enough confidence."
+                )
+            else:
+                wand.publish_spell(
+                    prediction,
+                    confidence,
+                    top_predictions,
+                )
+                print(
+                    f"Published {prediction} to "
+                    f"tcp://{ZMQ_BIND_HOST}:{ZMQ_PORT}"
                 )
 
             print("=" * 60)
@@ -550,12 +790,50 @@ async def main():
         print("Press Ctrl+C to stop.")
         print()
 
+        reconnect_delay = RECONNECT_DELAY
         while not wand.shutdown_event.is_set():
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.5)
 
-        if wand.bluetooth_disconnected.is_set():
-            print("Bluetooth connection was lost.")
-            print("Application will shut down.")
+            notification_age = (
+                time.monotonic() - wand.last_notification_time
+            )
+            connection_lost = wand.bluetooth_disconnected.is_set()
+            notifications_stalled = (
+                wand._connected_ready
+                and notification_age > NOTIFICATION_TIMEOUT
+            )
+
+            if not connection_lost and not notifications_stalled:
+                reconnect_delay = RECONNECT_DELAY
+                continue
+
+            if notifications_stalled and not connection_lost:
+                print(
+                    "WARNING: No BLE notifications received for "
+                    f"{notification_age:.1f}s; reconnecting."
+                )
+            print_ble_diagnostics(wand)
+
+            reconnected = await wand.reconnect(
+                attempts=5,
+                delay=0,
+            )
+            if reconnected:
+                reconnect_delay = RECONNECT_DELAY
+                print("Wand connection restored.")
+                continue
+
+            print(
+                "Reconnect batch failed; retrying in "
+                f"{reconnect_delay:.1f}s."
+            )
+            await asyncio.sleep(
+                reconnect_delay + random.uniform(0.0, 0.5)
+            )
+            reconnect_delay = min(
+                reconnect_delay * 2,
+                RECONNECT_MAX_DELAY,
+            )
 
     except asyncio.CancelledError:
         raise

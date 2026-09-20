@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Raspberry Pi Camera Stream</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
+</head>
+<body>
+    <h1>Nerf Shooter</h1>
+    <button id="shoot" onclick="shoot()">Shoot</button>
+    <button id="start" onclick="start()">Start Video</button>
+    <button id="stop" style="display: none" onclick="stop()">Stop Video</button>
+    <p id="scriptStatus"></p>
+    <video id="video" autoplay playsinline></video>
+    <br>
+    <script src="client.js"></script>
+</body>
+</html>

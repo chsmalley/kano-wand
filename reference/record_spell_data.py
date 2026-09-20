@@ -13,15 +13,7 @@ from kano_wand import KanoWand
 # Configuration
 # ----------------------------------------------------------------------
 
-# WAND_ADDRESS = "D0:1F:65:71:51:32"  # OG
-WAND_ADDRESS = os.getenv("WAND_ADDRESS", "DA:94:FD:35:20:15")
-
-NOTIFICATION_TIMEOUT = float(
-    os.getenv("WAND_NOTIFICATION_TIMEOUT", "5.0")
-)
-MAX_GESTURE_SECONDS = float(
-    os.getenv("WAND_MAX_GESTURE_SECONDS", "8.0")
-)
+WAND_ADDRESS = "D0:1F:65:71:51:32"
 
 TRAINING_FOLDER = Path("training_data")
 
@@ -78,11 +70,8 @@ def gesture_to_dict(gesture):
         ]
     }
 
-    if diagnostics is not None:
-        data["ble_diagnostics"] = diagnostics
 
-
-def save_gesture(gesture, spell, repetition, output_folder, diagnostics=None):
+def save_gesture(gesture, spell, repetition, output_folder):
     """
     Save one completed gesture to a JSON file.
     """
@@ -154,165 +143,47 @@ def clear_spell_queue(wand):
             break
 
 
-def snapshot_ble_diagnostics(wand):
-    """Take a cheap counter snapshot before/after a recording."""
-    if hasattr(wand, "get_notification_diagnostics"):
-        return wand.get_notification_diagnostics()
-    return {
-        "motion": {"count": wand.notification_counts["motion"]},
-        "orientation": {"count": wand.notification_counts["orientation"]},
-        "button": {"count": wand.notification_counts["button"]},
-        "button_down": wand.button_down_count,
-        "button_up": wand.button_up_count,
-    }
-
-
-def print_recording_diagnostics(before, after, gesture):
-    print()
-    print("Recording BLE diagnostics:")
-    for kind in ("motion", "orientation", "button"):
-        count = after[kind]["count"] - before[kind]["count"]
-        d = after[kind]
-        print(
-            f"  {kind:11s}: notifications={count}, "
-            f"max_gap={d.get('max_gap', 0.0):.4f}s, "
-            f">0.2s={d.get('gaps_over_0_2', 0)}, "
-            f">0.5s={d.get('gaps_over_0_5', 0)}"
-        )
-
-    down = after["button_down"] - before["button_down"]
-    up = after["button_up"] - before["button_up"]
-    print(f"  button edges: down={down}, up={up}")
-
-    if gesture.motion:
-        duration = gesture.motion[-1].timestamp - gesture.motion[0].timestamp
-        print(f"  gesture duration: {duration:.3f}s")
-        if duration > 6.0:
-            print(
-                "  WARNING: This gesture lasted more than 6 seconds. "
-                "If the button release was missed, this may contain dead data."
-            )
-
-
-async def ensure_connected(wand):
-    """Recover the BLE connection if Bleak reports it has been lost."""
-    notification_age = time.monotonic() - wand.last_notification_time
-    notifications_stalled = (
-        wand._connected_ready
-        and notification_age > NOTIFICATION_TIMEOUT
-    )
-    if (
-        wand.bluetooth_disconnected.is_set()
-        or not wand.client.is_connected
-        or notifications_stalled
-    ):
-        print()
-        if notifications_stalled:
-            print(
-                "BLE notifications have stalled for "
-                f"{notification_age:.1f}s. Recovering..."
-            )
-        else:
-            print("BLE connection is unavailable. Recovering...")
-        return await wand.reconnect(attempts=6, delay=2.5)
-
-    return True
-
-
-def print_ble_diagnostics(wand):
-    now = time.monotonic()
-    print(
-        "BLE diagnostics: "
-        f"connected={wand.client.is_connected}, "
-        f"motion={wand.notification_counts['motion']}, "
-        f"orientation={wand.notification_counts['orientation']}, "
-        f"button={wand.notification_counts['button']}, "
-        f"button_down={wand.button_down_count}, "
-        f"button_up={wand.button_up_count}, "
-        f"last_any={now - wand.last_notification_time:.2f}s ago"
-    )
-
-
 async def wait_for_gesture(wand):
     """
-    Wait for a button-held gesture while watching for BLE loss.
+    Wait for the user to:
 
-    If BLE drops before a gesture begins, reconnect and keep waiting.
-    If BLE drops during a gesture, discard that partial gesture, reconnect,
-    and require the user to repeat it rather than saving incomplete data.
+        1. Press and hold the wand button.
+        2. Perform the spell.
+        3. Release the button.
+
+    The KanoWand button handler controls wand.recording.
     """
 
+    # Wait for the button to be pressed
     print()
     print("Press and HOLD the wand button...")
-
-    last_status = time.monotonic()
-    recording_started = None
-
-    while True:
-        if not await ensure_connected(wand):
-            raise RuntimeError("Unable to recover the wand Bluetooth connection.")
-
-        if wand.recording:
-            if recording_started is None:
-                recording_started = time.monotonic()
-            retry_after_reconnect = False
-            print("Recording!")
-
-            # Wait for release, but abort this recording if BLE disappears.
-            while wand.recording:
-                if (
-                    time.monotonic() - recording_started
-                    > MAX_GESTURE_SECONDS
-                ):
-                    print(
-                        "\nGesture exceeded "
-                        f"{MAX_GESTURE_SECONDS:.1f}s without a release."
-                    )
-                    wand.recording = False
-                    wand.button_pressed = False
-                    clear_spell_queue(wand)
-                    return None
-
-                if not await ensure_connected(wand):
-                    print()
-                    print("BLE lost during recording. This attempt will NOT be saved.")
-                    print("BLE recovered. Please repeat this spell.")
-                    clear_spell_queue(wand)
-                    wand.recording = False
-                    wand.button_pressed = False
-                    recording_started = None
-                    retry_after_reconnect = True
-                    break
-
-                await asyncio.sleep(0.01)
-
-            if retry_after_reconnect:
-                print("Please press and HOLD the wand button again.")
-                continue
-
-            print("Button released.")
-            recording_started = None
-
-            for _ in range(100):
-                try:
-                    gesture = wand.spell_queue.get_nowait()
-                    wand.spell_queue.task_done()
-                    return gesture
-                except Exception:
-                    await asyncio.sleep(0.01)
-
-            # A release without a queued gesture means the callback stream
-            # was interrupted or the gesture was empty.  Do not save it.
-            raise RuntimeError(
-                "Button was released, but no completed gesture was received."
-            )
-
-        # While waiting for the user, periodically report diagnostics.
-        if time.monotonic() - last_status >= 10:
-            print_ble_diagnostics(wand)
-            last_status = time.monotonic()
-
+    
+    while not wand.recording:
         await asyncio.sleep(0.01)
+
+    print("Recording!")
+
+    # Wait for the button to be released
+    while wand.recording:
+        await asyncio.sleep(0.01)
+
+    print("Button released.")
+
+    # The button handler should have placed the completed Gesture
+    # into spell_queue.
+    #
+    # Give the callback a moment to finish.
+    for _ in range(100):
+        try:
+            gesture = wand.spell_queue.get_nowait()
+            wand.spell_queue.task_done()
+            return gesture
+        except Exception:
+            await asyncio.sleep(0.01)
+
+    raise RuntimeError(
+        "Button was released, but no completed gesture was received."
+    )
 
 
 # ----------------------------------------------------------------------
@@ -342,19 +213,8 @@ async def record_spell(wand, spell, repetition, output_folder):
     # Make sure there isn't an old gesture waiting in the queue
     clear_spell_queue(wand)
 
-    # Capture BLE timing/counter diagnostics around this exact gesture.
-    diagnostics_before = snapshot_ble_diagnostics(wand)
-    if hasattr(wand, "reset_gap_diagnostics"):
-        wand.reset_gap_diagnostics()
-
-    # Wait for the actual gesture.  A BLE failure during capture returns
-    # control here so the repetition can be retried rather than saving bad data.
-    try:
-        gesture = await wait_for_gesture(wand)
-    except RuntimeError as e:
-        print()
-        print(f"Recording attempt failed: {e}")
-        return None
+    # Wait for the actual gesture
+    gesture = await wait_for_gesture(wand)
 
     # Make sure we actually captured data
     motion_count = len(gesture.motion)
@@ -364,31 +224,12 @@ async def record_spell(wand, spell, repetition, output_folder):
         print("WARNING: No motion or orientation data was recorded.")
         return None
 
-    diagnostics_after = snapshot_ble_diagnostics(wand)
-    print_recording_diagnostics(
-        diagnostics_before,
-        diagnostics_after,
-        gesture
-    )
-
-    diagnostics_for_file = {
-        "motion_notifications": diagnostics_after["motion"]["count"] - diagnostics_before["motion"]["count"],
-        "orientation_notifications": diagnostics_after["orientation"]["count"] - diagnostics_before["orientation"]["count"],
-        "button_notifications": diagnostics_after["button"]["count"] - diagnostics_before["button"]["count"],
-        "button_down_events": diagnostics_after["button_down"] - diagnostics_before["button_down"],
-        "button_up_events": diagnostics_after["button_up"] - diagnostics_before["button_up"],
-        "motion_max_gap_seconds": diagnostics_after["motion"].get("max_gap", 0.0),
-        "orientation_max_gap_seconds": diagnostics_after["orientation"].get("max_gap", 0.0),
-        "button_max_gap_seconds": diagnostics_after["button"].get("max_gap", 0.0),
-    }
-
     # Save the gesture
     filepath = save_gesture(
         gesture,
         spell,
         repetition,
-        output_folder,
-        diagnostics=diagnostics_for_file
+        output_folder
     )
 
     print()
@@ -447,7 +288,6 @@ async def main():
 
         # Give BLE notifications a moment to stabilize
         await asyncio.sleep(1)
-        print_ble_diagnostics(wand)
 
         # --------------------------------------------------------------
         # Record every spell
@@ -462,15 +302,7 @@ async def main():
             print(f" {spell}")
             print("#" * 70)
 
-            repetition = 1
-            while repetition <= REPETITIONS:
-                if not await ensure_connected(wand):
-                    print(
-                        "Unable to reconnect right now. "
-                        f"Retrying {spell}, repetition {repetition}..."
-                    )
-                    await asyncio.sleep(5)
-                    continue
+            for repetition in range(1, REPETITIONS + 1):
 
                 result = await record_spell(
                     wand,
@@ -481,18 +313,9 @@ async def main():
 
                 if result is not None:
                     recordings.append(result)
-                    repetition += 1
-                else:
-                    print()
-                    print(
-                        f"Re-attempting {spell}, repetition {repetition}. "
-                        "No recording was saved."
-                    )
-                    await asyncio.sleep(1)
-                    continue
 
                 # Short pause between repetitions
-                if repetition <= REPETITIONS:
+                if repetition < REPETITIONS:
                     print()
                     print("Get ready for the next repetition...")
                     await asyncio.sleep(2)

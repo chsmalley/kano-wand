@@ -1,7 +1,10 @@
 import logging
+import os
 import queue
 import threading
 import time
+
+import zmq
 
 from flask import Flask, jsonify, render_template
 
@@ -12,10 +15,27 @@ from spell_receiver import SpellReceiver
 # Configuration
 # ------------------------------------------------------------
 
-ZMQ_HOST = "127.0.0.1"
-ZMQ_PORT = 5555
+ZMQ_HOST = os.getenv("ZMQ_HOST", "127.0.0.1")
+ZMQ_PORT = int(os.getenv("ZMQ_PORT", "5555"))
 
 DISPLAY_SPELL_SECONDS = 8
+
+SPELL_TRICKS = {
+    "FLIPENDO": "PINGPONG",
+    "LOCOMOTOR": "TOY",
+    "EXPELLIARMUS": "BUBBLE",
+    "AVIS": "BAT",
+    "REDUCTO": "STIR",
+}
+
+TRICK_CONTROLLER_ENABLED = os.getenv(
+    "TRICK_CONTROLLER_ENABLED",
+    "1",
+) != "0"
+SPHERO_MAC = os.getenv("SPHERO_MAC", "")
+NERF_ENABLED = os.getenv("NERF_ENABLED", "1") != "0"
+NERF_HOST = os.getenv("NERF_HOST", "192.168.0.26")
+NERF_PORT = int(os.getenv("NERF_PORT", "5555"))
 
 
 # ------------------------------------------------------------
@@ -51,6 +71,100 @@ spell_receiver = SpellReceiver(
     spell_queue=spell_queue,
 )
 
+trick_controller = None
+trick_controller_thread = None
+nerf_context = None
+nerf_publisher = None
+
+
+def start_trick_controller():
+    """Start the GPIO trick controller when hardware is available."""
+    global trick_controller, trick_controller_thread
+
+    if not TRICK_CONTROLLER_ENABLED:
+        logging.info("Trick controller disabled by configuration.")
+        return
+
+    try:
+        from trick_or_treatier import TrickOrTreat
+
+        trick_controller = TrickOrTreat(SPHERO_MAC or None)
+        trick_controller_thread = threading.Thread(
+            target=trick_controller.run,
+            name="TrickController",
+            daemon=True,
+        )
+        trick_controller_thread.start()
+        logging.info("Trick controller started.")
+    except Exception:
+        trick_controller = None
+        logging.exception(
+            "Unable to start trick controller; continuing without GPIO actions."
+        )
+
+
+def stop_trick_controller():
+    if trick_controller is not None:
+        trick_controller.stop()
+
+
+def start_nerf_publisher():
+    """Connect a ZeroMQ publisher to the remote Nerf Raspberry Pi."""
+    global nerf_context, nerf_publisher
+
+    if not NERF_ENABLED:
+        logging.info("Nerf publisher disabled by configuration.")
+        return
+
+    nerf_context = zmq.Context()
+    nerf_publisher = nerf_context.socket(zmq.PUB)
+    nerf_publisher.setsockopt(zmq.LINGER, 0)
+    nerf_publisher.connect(f"tcp://{NERF_HOST}:{NERF_PORT}")
+    logging.info(
+        "Nerf publisher connected to tcp://%s:%s",
+        NERF_HOST,
+        NERF_PORT,
+    )
+
+
+def stop_nerf_publisher():
+    if nerf_publisher is not None:
+        nerf_publisher.close(linger=0)
+    if nerf_context is not None:
+        nerf_context.term()
+
+
+def send_nerf_command(spell, confidence):
+    """Ask the remote Nerf Pi to perform the action for a spell."""
+    if spell != "STUPEFY" or nerf_publisher is None:
+        return
+
+    nerf_publisher.send_json({
+        "command": "shoot",
+        "spell": spell,
+        "confidence": confidence,
+        "timestamp": time.time(),
+    })
+    logging.info("Sent Nerf shoot command to %s", NERF_HOST)
+
+
+def run_spell_action(spell):
+    """Trigger the GPIO trick associated with a recognized spell."""
+    trick = SPELL_TRICKS.get(spell)
+    if trick is None:
+        return
+
+    if trick_controller is None:
+        logging.warning(
+            "No trick controller available for %s (%s)",
+            spell,
+            trick,
+        )
+        return
+
+    trick_controller.trigger_trick(trick)
+    logging.info("Triggered trick %s for spell %s", trick, spell)
+
 
 # ------------------------------------------------------------
 # Spell processing
@@ -60,8 +174,7 @@ def spell_processor():
     """
     Wait for spells from ZeroMQ and update the display state.
 
-    Later this is where we can also launch the physical spell
-    actions, such as turning GPIO pins on/off.
+    Recognized spells also trigger their mapped Raspberry Pi trick.
     """
 
     global current_spell
@@ -89,16 +202,8 @@ def spell_processor():
                     "timestamp": time.time(),
                 }
 
-            # ------------------------------------------------
-            # Physical spell action will eventually go here.
-            # ------------------------------------------------
-            #
-            # Example:
-            #
-            # run_spell_action(spell)
-            #
-            # For now we just print it.
-            #
+            run_spell_action(spell)
+            send_nerf_command(spell, confidence)
             print(f"CAST: {spell}")
 
         except Exception:
@@ -158,6 +263,8 @@ def get_spell():
 def start_services():
     """Start background services."""
 
+    start_trick_controller()
+    start_nerf_publisher()
     spell_receiver.start()
 
     processor_thread = threading.Thread(
@@ -192,3 +299,5 @@ if __name__ == "__main__":
 
     finally:
         spell_receiver.stop()
+        stop_trick_controller()
+        stop_nerf_publisher()

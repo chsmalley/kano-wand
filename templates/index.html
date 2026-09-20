@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Kano Spell Observatory</title>
+	<style>
+		:root {
+			color-scheme: dark;
+			--ink: #f9f0d8;
+			--muted: #b9a98b;
+			--night: #090b1d;
+			--violet: #8d65d8;
+			--orange: #ff8d3b;
+			--green: #91c46c;
+		}
+
+		* { box-sizing: border-box; }
+
+		body {
+			min-height: 100vh;
+			margin: 0;
+			overflow-x: hidden;
+			color: var(--ink);
+			background:
+				radial-gradient(circle at 50% -10%, #27265a 0, transparent 38%),
+				radial-gradient(circle at 12% 72%, #171735 0, transparent 30%),
+				var(--night);
+			font-family: "Trebuchet MS", sans-serif;
+		}
+
+		body::before {
+			position: fixed;
+			inset: 0;
+			z-index: -1;
+			opacity: .45;
+			content: "";
+			background-image: radial-gradient(#d9c99b 1px, transparent 1px);
+			background-size: 76px 76px;
+			mask-image: linear-gradient(to bottom, black, transparent 75%);
+		}
+
+		.observatory {
+			width: min(1080px, calc(100% - 40px));
+			min-height: 100vh;
+			margin: 0 auto;
+			padding: 38px 0 34px;
+		}
+
+		header {
+			display: flex;
+			align-items: end;
+			justify-content: space-between;
+			gap: 20px;
+			animation: rise-in .8s ease both;
+		}
+
+		.eyebrow {
+			margin: 0 0 10px;
+			color: var(--orange);
+			font-size: .72rem;
+			font-weight: bold;
+			letter-spacing: .2em;
+			text-transform: uppercase;
+		}
+
+		h1, h2, .spell-name { font-family: Georgia, serif; }
+
+		h1 {
+			margin: 0;
+			font-size: clamp(2rem, 5vw, 4.8rem);
+			font-weight: normal;
+			letter-spacing: .01em;
+			line-height: .98;
+		}
+
+		.status {
+			display: inline-flex;
+			align-items: center;
+			gap: 9px;
+			margin: 0 0 7px;
+			color: var(--muted);
+			font-size: .85rem;
+		}
+
+		.status::before {
+			width: 8px;
+			height: 8px;
+			border-radius: 50%;
+			background: var(--green);
+			box-shadow: 0 0 14px var(--green);
+			content: "";
+		}
+
+		.stage {
+			position: relative;
+			display: grid;
+			place-items: center;
+			min-height: 560px;
+			margin-top: 28px;
+			overflow: hidden;
+			border: 1px solid #39335a;
+			background: linear-gradient(145deg, #11142e 0%, #15122b 62%, #231535 100%);
+			box-shadow: 0 22px 70px #03040f99;
+			animation: rise-in .8s .12s ease both;
+		}
+
+		.moon {
+			position: absolute;
+			top: 55px;
+			right: 12%;
+			width: 116px;
+			height: 116px;
+			border-radius: 50%;
+			background: #f8df9a;
+			box-shadow: 0 0 55px #f8df9a66;
+		}
+
+		.moon::after {
+			position: absolute;
+			top: 19px;
+			left: 28px;
+			width: 18px;
+			height: 12px;
+			border-radius: 50%;
+			background: #e3c87f;
+			box-shadow: 34px 28px 0 -2px #e3c87f, 12px 67px 0 -4px #e3c87f;
+			content: "";
+			opacity: .7;
+		}
+
+		.signal {
+			position: absolute;
+			width: 390px;
+			height: 390px;
+			border: 1px solid #8d65d844;
+			border-radius: 50%;
+			box-shadow: 0 0 0 22px #8d65d80c, 0 0 0 44px #8d65d806;
+			animation: breathe 4s ease-in-out infinite;
+		}
+
+		.signal::before, .signal::after {
+			position: absolute;
+			inset: 16%;
+			border: 1px dashed #ff8d3b55;
+			border-radius: 50%;
+			content: "";
+			transform: rotate(25deg);
+		}
+
+		.signal::after { inset: 28%; transform: rotate(-38deg); }
+
+		.spell-panel {
+			z-index: 1;
+			text-align: center;
+			animation: float-in 1s .3s ease both;
+		}
+
+		.wand-mark { margin-bottom: 18px; color: var(--orange); font-size: 2rem; }
+
+		.spell-name {
+			min-height: 1.15em;
+			margin: 0;
+			color: #fff6dc;
+			font-size: clamp(2.7rem, 9vw, 6.5rem);
+			font-weight: normal;
+			line-height: 1.05;
+			text-shadow: 0 0 24px #ff8d3b88;
+		}
+
+		.spell-name.idle { color: #817991; font-size: clamp(1.5rem, 4vw, 2.5rem); }
+
+		.confidence {
+			width: min(300px, 70vw);
+			margin: 22px auto 0;
+			color: var(--muted);
+			font-size: .82rem;
+			letter-spacing: .12em;
+			text-transform: uppercase;
+		}
+
+		.meter { height: 4px; margin-top: 10px; overflow: hidden; background: #ffffff1a; }
+		.meter-fill { width: 0; height: 100%; background: var(--orange); transition: width .5s ease; }
+
+		.pumpkin {
+			position: absolute;
+			bottom: -15px;
+			left: 8%;
+			width: 104px;
+			height: 78px;
+			border-radius: 48% 48% 42% 42%;
+			background: var(--orange);
+			box-shadow: inset 14px 0 #d8622e, inset -14px 0 #ffad47;
+			transform: rotate(-5deg);
+		}
+
+		.pumpkin::before {
+			position: absolute;
+			top: -13px;
+			left: 46px;
+			width: 12px;
+			height: 20px;
+			background: var(--green);
+			content: "";
+			transform: rotate(12deg);
+		}
+
+		.pumpkin::after {
+			position: absolute;
+			top: 30px;
+			left: 30px;
+			width: 45px;
+			height: 17px;
+			background: #231535;
+			clip-path: polygon(0 0, 35% 100%, 50% 20%, 65% 100%, 100% 0, 76% 100%, 50% 65%, 24% 100%);
+			content: "";
+		}
+
+		.footer-note { margin: 18px 0 0; color: var(--muted); font-size: .8rem; text-align: center; }
+
+		@keyframes rise-in { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
+		@keyframes float-in { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: scale(1); } }
+		@keyframes breathe { 50% { transform: scale(1.04); opacity: .7; } }
+
+		@media (max-width: 620px) {
+			.observatory { width: min(100% - 28px, 1080px); padding-top: 24px; }
+			header { align-items: start; flex-direction: column; }
+			.status { margin-bottom: 0; }
+			.stage { min-height: 500px; margin-top: 20px; }
+			.moon { top: 30px; right: 8%; width: 76px; height: 76px; }
+			.signal { width: 290px; height: 290px; }
+		}
+	</style>
+</head>
+<body>
+	<main class="observatory">
+		<header>
+			<div>
+				<p class="eyebrow">Kano wand // live magical telemetry</p>
+				<h1>Spell Observatory</h1>
+			</div>
+			<p class="status" id="status">Listening for a spell</p>
+		</header>
+
+		<section class="stage" aria-live="polite">
+			<div class="moon" aria-hidden="true"></div>
+			<div class="signal" aria-hidden="true"></div>
+			<div class="pumpkin" aria-hidden="true"></div>
+			<div class="spell-panel">
+				<div class="wand-mark" aria-hidden="true">✦</div>
+				<p class="spell-name idle" id="spell">Awaiting magic</p>
+				<div class="confidence">
+					<span id="confidence">No incantation detected</span>
+					<div class="meter" aria-hidden="true"><div class="meter-fill" id="meter"></div></div>
+				</div>
+			</div>
+		</section>
+
+		<p class="footer-note">The cauldron is warm. The night is listening.</p>
+	</main>
+
+	<script>
+		const spellElement = document.getElementById("spell");
+		const confidenceElement = document.getElementById("confidence");
+		const meterElement = document.getElementById("meter");
+		const statusElement = document.getElementById("status");
+
+		function showSpell(data) {
+			if (!data.spell) {
+				spellElement.textContent = "Awaiting magic";
+				spellElement.classList.add("idle");
+				confidenceElement.textContent = "No incantation detected";
+				meterElement.style.width = "0";
+				statusElement.textContent = "Listening for a spell";
+				return;
+			}
+
+			spellElement.textContent = data.spell.replaceAll("_", " ");
+			spellElement.classList.remove("idle");
+			const confidence = Number(data.confidence);
+			const percent = Number.isFinite(confidence) ? Math.round(confidence * 100) : 0;
+			confidenceElement.textContent = `${percent}% magical confidence`;
+			meterElement.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+			statusElement.textContent = "Spell detected";
+		}
+
+		async function refreshSpell() {
+			try {
+				const response = await fetch("/api/spell", { cache: "no-store" });
+				if (!response.ok) throw new Error("Spell state unavailable");
+				showSpell(await response.json());
+			} catch (error) {
+				statusElement.textContent = "Observatory offline";
+			}
+		}
+
+		refreshSpell();
+		setInterval(refreshSpell, 500);
+	</script>
+</body>
+</html>
