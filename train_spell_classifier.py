@@ -22,6 +22,8 @@ TRAINING_FOLDERS = [
     Path("training_data_4"),
     Path("training_data_5"),
     Path("training_data_6"),
+    Path("training_data_7"),
+    Path("training_data_8"),
     ]
 MODEL_FILE = "spell_classifier.joblib"
 DTW_MODEL_FILE = "dtw_spell_classifier.joblib"
