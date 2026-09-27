@@ -14,7 +14,8 @@ from kano_wand import KanoWand
 # ----------------------------------------------------------------------
 
 # WAND_ADDRESS = "D0:1F:65:71:51:32"  # OG
-WAND_ADDRESS = os.getenv("WAND_ADDRESS", "DA:94:FD:35:20:15")
+WAND_ADDRESS = os.getenv("WAND_ADDRESS", "D0:1F:65:71:51:32")
+# WAND_ADDRESS = os.getenv("WAND_ADDRESS", "DA:94:FD:35:20:15")
 
 NOTIFICATION_TIMEOUT = float(
     os.getenv("WAND_NOTIFICATION_TIMEOUT", "5.0")

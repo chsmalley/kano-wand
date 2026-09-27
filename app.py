@@ -54,6 +54,7 @@ spell_queue = queue.Queue()
 current_spell = {
     "spell": None,
     "confidence": None,
+    "wand_id": None,
     "timestamp": None,
 }
 
@@ -187,11 +188,13 @@ def spell_processor():
 
             spell = spell_data["spell"]
             confidence = spell_data["confidence"]
+            wand_id = spell_data.get("wand_id")
 
             logging.info(
-                "Processing spell: %s (confidence=%s)",
+                "Processing spell: %s (confidence=%s, wand=%s)",
                 spell,
                 confidence,
+                wand_id or "unknown",
             )
 
             # Update the current display state.
@@ -199,6 +202,7 @@ def spell_processor():
                 current_spell = {
                     "spell": spell,
                     "confidence": confidence,
+                    "wand_id": wand_id,
                     "timestamp": time.time(),
                 }
 
@@ -250,6 +254,7 @@ def get_spell():
             spell_data = {
                 "spell": None,
                 "confidence": None,
+                "wand_id": None,
                 "timestamp": None,
             }
 

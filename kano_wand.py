@@ -23,24 +23,29 @@ import random
 import threading
 from dataclasses import dataclass, field
 import joblib
-from dtw_classifier import DTWNearestNeighborClassifier
 
-CLASSIFIER_TYPE = os.getenv("SPELL_CLASSIFIER", "extra_trees").lower()
-MODEL_FILE = (
-    "dtw_spell_classifier.joblib"
-    if CLASSIFIER_TYPE == "dtw"
-    else "spell_classifier.joblib"
-)
+MODEL_FILE = "spell_classifier.joblib"
 NUM_SAMPLES = 100
+FEATURE_CHANNELS = 3
 UNKNOWN_CONFIDENCE_THRESHOLD = 0.40
 UNKNOWN_MARGIN_THRESHOLD = 0.15
 
 try:
     classifier = joblib.load(MODEL_FILE)
-    print(f"Loaded {CLASSIFIER_TYPE} classifier: {MODEL_FILE}")
-except FileNotFoundError:
+    expected_features = NUM_SAMPLES * FEATURE_CHANNELS
+    model_features = getattr(classifier, "n_features_in_", expected_features)
+    if model_features != expected_features:
+        raise ValueError(
+            f"model expects {model_features} features; "
+            f"acceleration-only features require {expected_features}"
+        )
+    print(f"Loaded acceleration-only classifier: {MODEL_FILE}")
+except (FileNotFoundError, ValueError) as exc:
     classifier = None
-    print(f"WARNING: Classifier file not found: {MODEL_FILE}")
+    print(f"WARNING: Cannot use classifier {MODEL_FILE}: {exc}")
+
+if os.getenv("SPELL_CLASSIFIER", "extra_trees").lower() == "dtw":
+    print("WARNING: DTW inference is disabled; using ExtraTrees only.")
 
 BUTTON_UUID = "64A7000D-F691-4B93-A6F4-0968F5B648F8"
 SERVICE_UUID = "64A70011-F691-4B93-A6F4-0968F5B648F8"
@@ -49,7 +54,8 @@ MOTION_UUID = "64A7000C-F691-4B93-A6F4-0968F5B648F8"
 MAGN_CALIBRATE_UUID = "64A70021-F691-4B93-A6F4-0968F5B648F8"
 QUATERNIONS_RESET_UUID = "64A70004-F691-4B93-A6F4-0968F5B648F8"
 # WAND_ADDRESS = "D0:1F:65:71:51:32"  # OG
-WAND_ADDRESS = os.getenv("WAND_ADDRESS", "DA:94:FD:35:20:15")
+# WAND_ADDRESS = os.getenv("WAND_ADDRESS", "DA:94:FD:35:20:15")
+WAND_ADDRESS = os.getenv("WAND_ADDRESS", "D0:1F:65:71:51:32")
 
 ZMQ_BIND_HOST = os.getenv("ZMQ_BIND_HOST", "0.0.0.0")
 ZMQ_PORT = int(os.getenv("ZMQ_PORT", "5555"))
@@ -95,25 +101,15 @@ def interpolate_stream(samples, timestamps, num_samples):
 def gesture_to_features(gesture):
     if gesture.motion:
         timestamps = [s.timestamp for s in gesture.motion]
-        values = [[
-            s.mag_x, s.mag_y, s.mag_z,
-            s.acc_x, s.acc_y, s.acc_z,
-            s.pitch, s.roll, s.yaw
-        ] for s in gesture.motion]
-        motion = interpolate_stream(values, timestamps, NUM_SAMPLES)
+        values = [
+            [sample.acc_x, sample.acc_y, sample.acc_z]
+            for sample in gesture.motion
+        ]
+        acceleration = interpolate_stream(values, timestamps, NUM_SAMPLES)
     else:
-        motion = np.zeros((NUM_SAMPLES, 9))
+        acceleration = np.zeros((NUM_SAMPLES, FEATURE_CHANNELS))
 
-    if gesture.orientation:
-        timestamps = [s.timestamp for s in gesture.orientation]
-        values = [[s.x, s.y, s.z, s.w] for s in gesture.orientation]
-        orientation = interpolate_stream(
-            values, timestamps, NUM_SAMPLES
-        )
-    else:
-        orientation = np.zeros((NUM_SAMPLES, 4))
-
-    return np.hstack([motion, orientation]).flatten()
+    return acceleration.flatten()
 
 
 def classify_spell(gesture):
@@ -194,8 +190,9 @@ class KanoWand:
       * Disconnect callbacks never perform BLE operations themselves.
     """
 
-    def __init__(self, address):
+    def __init__(self, address, publisher=None):
         self.address = address
+        self._shared_publisher = publisher
 
         self.client = None
         self._client_generation = 0
@@ -275,16 +272,21 @@ class KanoWand:
         self.last_disconnect_reason = None
         self.last_reconnect_reason = None
 
-        self.context = zmq.Context()
-        self.publisher = self.context.socket(zmq.PUB)
-        self.publisher.setsockopt(zmq.LINGER, 0)
-        self.publisher.bind(f"tcp://{ZMQ_BIND_HOST}:{ZMQ_PORT}")
+        self.context = None
+        if publisher is None:
+            self.context = zmq.Context()
+            self.publisher = self.context.socket(zmq.PUB)
+            self.publisher.setsockopt(zmq.LINGER, 0)
+            self.publisher.bind(f"tcp://{ZMQ_BIND_HOST}:{ZMQ_PORT}")
+        else:
+            self.publisher = publisher
 
     def publish_spell(self, spell, confidence, top_predictions):
         """Publish a classified spell as a JSON message over ZeroMQ."""
         message = {
             "spell": spell,
             "confidence": confidence,
+            "wand_id": self.address,
             "top_predictions": [
                 {
                     "spell": prediction,
@@ -294,7 +296,10 @@ class KanoWand:
             ],
             "timestamp": time.time(),
         }
-        self.publisher.send_string(json.dumps(message))
+        if self._shared_publisher is not None:
+            self.publisher.publish(message)
+        else:
+            self.publisher.send_string(json.dumps(message))
 
     def _new_generation(self):
         self._client_generation += 1
@@ -331,7 +336,8 @@ class KanoWand:
         This method never changes self.client and never changes the current
         generation. That is important: a reconnect can retire an old client
         without accidentally affecting the new client.
-        """
+    Path("training_data_7"),
+g       """
         if client is None:
             return
 
@@ -626,15 +632,16 @@ class KanoWand:
         try:
             await self._retire_client(client, started)
         finally:
-            try:
-                self.publisher.close(linger=0)
-            except Exception:
-                pass
+            if self._shared_publisher is None:
+                try:
+                    self.publisher.close(linger=0)
+                except Exception:
+                    pass
 
-            try:
-                self.context.term()
-            except Exception:
-                pass
+                try:
+                    self.context.term()
+                except Exception:
+                    pass
 
             print("Wand disconnected")
 
@@ -1014,31 +1021,24 @@ def classify_worker(wand):
 
 async def main():
     wand = KanoWand(WAND_ADDRESS)
-
     classifier_thread = threading.Thread(
         target=classify_worker,
         args=(wand,),
-        daemon=True
+        name=f"Classifier-{wand.address}",
+        daemon=True,
     )
+    classifier_thread.start()
 
     try:
         await wand.connect()
-        classifier_thread.start()
-
-        print()
-        print("Running.")
-        print("Press and hold the wand button to perform a spell.")
-        print("Release the button when the spell is complete.")
+        print("Running. Hold the wand button to cast; release to finish.")
         print("Press Ctrl+C to stop.")
-        print()
 
         reconnect_delay = RECONNECT_DELAY
         while not wand.shutdown_event.is_set():
             await asyncio.sleep(0.5)
 
-            notification_age = (
-                time.monotonic() - wand.last_notification_time
-            )
+            notification_age = time.monotonic() - wand.last_notification_time
             connection_lost = wand.bluetooth_disconnected.is_set()
             notifications_stalled = (
                 wand._connected_ready
@@ -1057,10 +1057,11 @@ async def main():
                 wand.mark_notification_stall()
                 reconnect_reason = "notification_stall"
             else:
-                reconnect_reason = wand.last_disconnect_reason or "bluez_disconnect"
+                reconnect_reason = (
+                    wand.last_disconnect_reason or "bluez_disconnect"
+                )
 
             print_ble_diagnostics(wand)
-
             reconnected = await wand.reconnect(
                 attempts=5,
                 delay=0,
@@ -1082,27 +1083,16 @@ async def main():
                 reconnect_delay * 2,
                 RECONNECT_MAX_DELAY,
             )
-
     except asyncio.CancelledError:
         raise
-
-    except Exception as e:
-        print()
-        print(f"ERROR: {type(e).__name__}: {e}")
-
+    except Exception as exc:
+        print(f"ERROR: {type(exc).__name__}: {exc}")
     finally:
-        print()
         print("Shutting down...")
-
         wand.shutdown_event.set()
         classifier_thread.join(timeout=2)
-
         if classifier_thread.is_alive():
-            print(
-                "WARNING: Classifier thread did not stop "
-                "within the timeout."
-            )
-
+            print("WARNING: Classifier thread did not stop within the timeout.")
         await wand.disconnect()
         print("Shutdown complete")
 

@@ -8,7 +8,6 @@ from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.model_selection import LeaveOneGroupOut
 from sklearn.metrics import classification_report, confusion_matrix
 import joblib
-from dtw_classifier import DTWNearestNeighborClassifier
 
 
 # ----------------------------------------------------------------------
@@ -26,7 +25,6 @@ TRAINING_FOLDERS = [
     Path("training_data_8"),
     ]
 MODEL_FILE = "spell_classifier.joblib"
-DTW_MODEL_FILE = "dtw_spell_classifier.joblib"
 
 # Number of time points every gesture will be converted to.
 # This makes gestures of different lengths comparable.
@@ -133,118 +131,22 @@ def interpolate_stream(samples, timestamps, num_samples):
 
 def gesture_to_features(gesture):
     """
-    Convert motion + orientation streams into one fixed-length
-    feature vector.
-
-    Motion:
-        mag_x
-        mag_y
-        mag_z
-        acc_x
-        acc_y
-        acc_z
-        pitch
-        roll
-        yaw
-
-    Orientation:
-        x
-        y
-        z
-        w
+    Convert the three accelerometer axes into one fixed-length vector.
     """
+    motion = gesture.get("motion", [])
+    if not motion:
+        return np.zeros(NUM_SAMPLES * 3)
 
-    # --------------------------------------------------------------
-    # Motion
-    # --------------------------------------------------------------
-
-    motion = gesture["motion"]
-
-    if len(motion) > 0:
-
-        motion_timestamps = [
-            sample["timestamp"]
-            for sample in motion
-        ]
-
-        motion_values = [
-            [
-                sample["mag_x"],
-                sample["mag_y"],
-                sample["mag_z"],
-                sample["acc_x"],
-                sample["acc_y"],
-                sample["acc_z"],
-                sample["pitch"],
-                sample["roll"],
-                sample["yaw"]
-            ]
-            for sample in motion
-        ]
-
-        motion_resampled = interpolate_stream(
-            motion_values,
-            motion_timestamps,
-            NUM_SAMPLES
-        )
-
-    else:
-        motion_resampled = np.zeros(
-            (NUM_SAMPLES, 9)
-        )
-
-    # --------------------------------------------------------------
-    # Orientation
-    # --------------------------------------------------------------
-
-    orientation = gesture["orientation"]
-
-    if len(orientation) > 0:
-
-        orientation_timestamps = [
-            sample["timestamp"]
-            for sample in orientation
-        ]
-
-        orientation_values = [
-            [
-                sample["x"],
-                sample["y"],
-                sample["z"],
-                sample["w"]
-            ]
-            for sample in orientation
-        ]
-
-        orientation_resampled = interpolate_stream(
-            orientation_values,
-            orientation_timestamps,
-            NUM_SAMPLES
-        )
-
-    else:
-        orientation_resampled = np.zeros(
-            (NUM_SAMPLES, 4)
-        )
-
-    # --------------------------------------------------------------
-    # Combine motion and orientation
-    # --------------------------------------------------------------
-
-    combined = np.hstack([
-        motion_resampled,
-        orientation_resampled
-    ])
-
-    # Flatten:
-    #
-    # 100 samples x 13 features
-    #
-    # becomes:
-    #
-    # 1300-element feature vector
-    #
-    return combined.flatten()
+    timestamps = [sample["timestamp"] for sample in motion]
+    acceleration = [
+        [sample["acc_x"], sample["acc_y"], sample["acc_z"]]
+        for sample in motion
+    ]
+    return interpolate_stream(
+        acceleration,
+        timestamps,
+        NUM_SAMPLES,
+    ).flatten()
 
 
 # ----------------------------------------------------------------------
@@ -365,12 +267,6 @@ def train_classifier(X, y, groups):
             class_weight="balanced",
             n_jobs=-1,
         ),
-        "dtw": lambda: DTWNearestNeighborClassifier(
-            n_neighbors=3,
-            sequence_length=25,
-            window=4,
-            temperature=1.0,
-        ),
     }
 
     for name, model_factory in model_factories.items():
@@ -382,8 +278,6 @@ def train_classifier(X, y, groups):
     print("Training final model on all accepted recordings...")
     classifier = model_factories["extra_trees"]()
     classifier.fit(X, y)
-    dtw_classifier = model_factories["dtw"]()
-    dtw_classifier.fit(X, y)
 
     # --------------------------------------------------------------
     # Save model
@@ -393,14 +287,9 @@ def train_classifier(X, y, groups):
         classifier,
         MODEL_FILE
     )
-    joblib.dump(
-        dtw_classifier,
-        DTW_MODEL_FILE,
-    )
 
     print()
     print(f"Model saved to: {MODEL_FILE}")
-    print(f"DTW model saved to: {DTW_MODEL_FILE}")
 
     return classifier
 

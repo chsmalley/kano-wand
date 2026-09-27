@@ -78,9 +78,11 @@
 			display: inline-flex;
 			align-items: center;
 			gap: 9px;
+			max-width: 100%;
 			margin: 0 0 7px;
 			color: var(--muted);
 			font-size: .85rem;
+			overflow-wrap: anywhere;
 		}
 
 		.status::before {
@@ -281,7 +283,9 @@
 			const percent = Number.isFinite(confidence) ? Math.round(confidence * 100) : 0;
 			confidenceElement.textContent = `${percent}% magical confidence`;
 			meterElement.style.width = `${Math.max(0, Math.min(100, percent))}%`;
-			statusElement.textContent = "Spell detected";
+			statusElement.textContent = data.wand_id
+				? `Spell detected (${data.wand_id})`
+				: "Spell detected";
 		}
 
 		async function refreshSpell() {

@@ -13,7 +13,8 @@ class SpellReceiver:
     Expected message format:
         {
             "spell": "LUMOS",
-            "confidence": 0.94
+            "confidence": 0.94,
+            "wand_id": "DA:94:FD:35:20:15"
         }
 
     The most recently received spell is placed into the queue so that
@@ -213,15 +214,21 @@ class SpellReceiver:
         except (TypeError, ValueError):
             confidence = None
 
+        wand_id = data.get("wand_id")
+        if wand_id is not None and not isinstance(wand_id, str):
+            wand_id = str(wand_id)
+
         spell_data = {
             "spell": spell,
             "confidence": confidence,
+            "wand_id": wand_id,
         }
 
         self.logger.info(
-            "SPELL RECEIVED: %s (confidence=%s)",
+            "SPELL RECEIVED: %s (confidence=%s, wand=%s)",
             spell,
             confidence,
+            wand_id or "unknown",
         )
 
         # Put the spell into the queue without blocking.
