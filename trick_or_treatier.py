@@ -1,38 +1,22 @@
+import logging
+import queue
+import random
 import sys
-from gpiozero import Motor, Button, LED, DigitalOutputDevice
+import threading
 import time
+from itertools import cycle
+
+from gpiozero import Motor, Button, LED, DigitalOutputDevice
+
 try:
     import sphero_mini
 except ImportError:
     sphero_mini = None
-import random
-import threading
-import queue
-from itertools import cycle
-from flask import Flask, render_template, redirect, url_for
-from flask.logging import default_handler
-import plotly.graph_objs as go
-import pandas as pd
-import json
-# import picamera
-import time
-import logging
-
-HALLOWEEN_FILE = '~/trick-or-treat/trick_or_treat.log'
-
-
-logging.basicConfig(
-    filename="trick_or_treat.log",
-    format='%(asctime)s,%(levelname)s,%(message)s',
-    datefmt='%Y:%m:%d:%H:%M:%S',
-    level=logging.INFO
-)
 
 
 # CONSTANTS
-TRICK_TIME = 13
 TREAT_TIME = 0.2
-LIGHTS_TIME = 1.0
+LIGHTS_TIME = 10.0
 ROLL_TIME = 3
 ROLL_STEP_TIME = 0.01
 BUTTON_PRESS_DELAY = 0.1
@@ -53,7 +37,8 @@ TRICK_TIMES = {
     "PINGPONG": 5,
     "BAT": 8,
     "TOY": 5,
-    "STIR": 10
+    "STIR": 10,
+    "LIGHTS": LIGHTS_TIME,
 }
 # GPIO PINS
 TREAT_BUTTON_PIN = 14  
@@ -81,6 +66,7 @@ class TrickOrTreat():
         self.current_trick = None
         self.trick_end_time = time.time()
         self.treat_queue = queue.Queue()
+        self.trick_queue = queue.Queue()
         # Setup motors
         self.treat_motor = Motor(forward=TREAT_MOTOR_FORWARD_PIN,
                                  backward=TREAT_MOTOR_BACKWARD_PIN)
@@ -143,16 +129,15 @@ class TrickOrTreat():
             )
 
     def trigger_trick(self, trick):
-        """Start a named trick from an external spell controller."""
+        """Queue a named trick for the controller's worker thread."""
         trick = trick.upper().strip()
         if trick not in TRICK_TIMES:
             raise ValueError(f"Unknown trick: {trick}")
         if not self.running:
             raise RuntimeError("Trick controller is not running")
 
-        self.current_trick = trick
-        self.trick_end_time = time.time() + TRICK_TIMES[trick]
-        
+        self.trick_queue.put_nowait(trick)
+
     
     def _handle_continuous_tricks(self):
         while self.running:
@@ -172,27 +157,33 @@ class TrickOrTreat():
         
     def _handle_tricks(self):
         while self.running:
-            # if time.time() < self.trick_end_time:
-            #     self.trick_led.on()
-            # else:
-            #     self.trick_led.off()
-            trick = self.current_trick
-            if trick is not None:
-                print(f"trick button pressed. Performing trick: {trick}")
-            if trick == "BUBBLE":
-                self._bubble_trick()
-            elif trick == "PINGPONG":
-                self._ping_pong_trick()
-            elif trick == "TOY":
-                self._toy_trick()
-            elif trick == "BAT":
-                self._bat_trick()
-            elif trick == "STIR":
-                self._stir_trick()
-            elif trick is None:
-                time.sleep(0.01)
-            else:
-                print(f"Unknown trick: {trick}")
+            try:
+                trick = self.trick_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+
+            if not self.running:
+                self.trick_queue.task_done()
+                break
+
+            self.current_trick = trick
+            self.trick_end_time = time.time() + TRICK_TIMES[trick]
+            logging.info("Performing trick: %s", trick)
+            try:
+                handlers = {
+                    "BUBBLE": self._bubble_trick,
+                    "PINGPONG": self._ping_pong_trick,
+                    "BAT": self._bat_trick,
+                    "TOY": self._toy_trick,
+                    "LIGHTS": self._lights_trick,
+                    "STIR": self._stir_trick,
+                }
+                handlers[trick]()
+            except Exception:
+                logging.exception("Trick failed: %s", trick)
+            finally:
+                self.current_trick = None
+                self.trick_queue.task_done()
             
     def _bubble_trick(self):
         self.trick_led.on()
@@ -235,14 +226,13 @@ class TrickOrTreat():
     def _lights_trick(self):
         self.trick_led.on()
         while (time.time() - self.trick_end_time) < 0:
-            self.lights_off.on()
-            time.sleep(BUTTON_PRESS_DELAY)
-            self.lights_off.off()
-            time.sleep(LIGHTS_TIME)
             self.lights_on.on()
             time.sleep(BUTTON_PRESS_DELAY)
             self.lights_on.off()
             time.sleep(LIGHTS_TIME)
+            self.lights_off.on()
+            time.sleep(BUTTON_PRESS_DELAY)
+            self.lights_off.off()
         self.trick_led.off()
 
     def _stir_trick(self):
@@ -292,7 +282,6 @@ class TrickOrTreat():
     
     def run(self):
         self.running = True
-        # Start threads
         self.continuous_trick_thread.start()
         self.trick_thread.start()
         self.treat_thread.start()
@@ -306,19 +295,14 @@ class TrickOrTreat():
             trick_pressed = self.prev_trick_button \
                     and not self.curr_trick_button
             # print(f"curr: {self.curr_trick_button} prev: {self.prev_trick_button}")
-            if time.time() > self.trick_end_time:
-                self.current_trick = None
             if treat_pressed:
                 logging.info("treat")
                 self.treat_queue.put("CANDY")
             elif trick_pressed:
                 if not self.current_trick:
                     logging.info("trick")
-                    self.current_trick = next(self.tricks)
-                    self.trick_end_time = time.time() + \
-                            TRICK_TIMES[self.current_trick]
+                    self.trigger_trick(next(self.tricks))
                 else:
-                    self.current_trick = None
                     self.trick_end_time = time.time()
             else:
                 # Don't run too fast
@@ -328,6 +312,8 @@ class TrickOrTreat():
     def stop(self):
         self.running = False
         self.current_trick = None
+        self.trick_queue.put_nowait(None)
+        self.treat_queue.put_nowait(None)
         self.treat_motor.stop()
         self.stir_motor.stop()
         self.trick_led.off()
@@ -344,6 +330,10 @@ class TrickOrTreat():
 
 
 if __name__ == '__main__':
+    logging.basicConfig(
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        level=logging.INFO,
+    )
     # EB:B6:31:82:7C:F0
     sphero_mac = sys.argv[1]
     # sphero_mac = "EB:B6:31:82:7C:F0"

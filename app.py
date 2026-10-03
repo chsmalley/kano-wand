@@ -25,6 +25,8 @@ SPELL_TRICKS = {
     "LOCOMOTOR": "TOY",
     "EXPELLIARMUS": "BUBBLE",
     "AVIS": "BAT",
+    "INCENDIO": "TOY",
+    "LUMOS": "LIGHTS",
     "REDUCTO": "STIR",
 }
 
