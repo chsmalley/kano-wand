@@ -23,6 +23,7 @@ TRAINING_FOLDERS = [
     Path("training_data_6"),
     Path("training_data_7"),
     Path("training_data_8"),
+    Path("training_data_9"),
     ]
 MODEL_FILE = "spell_classifier.joblib"
 

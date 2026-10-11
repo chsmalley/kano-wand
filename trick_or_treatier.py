@@ -25,19 +25,35 @@ SPHERO_SPEED = 100  # int: (0 - 255)
 CANDY_SPEED = 0.3  # float: (0 - 1)
 BLOOD_SPEED = 0.5  # float: (0 - 1)
 STIR_SPEED = 0.2  # float: (0 - 1)
+SPIDER_MOTOR_1_SPEED = 0.5  # float: (0 - 1)
+SPIDER_MOTOR_2_SPEED = 0.5  # float: (0 - 1)
+SPIDER_MOTOR_1_FORWARD_TIME = 0.1
+SPIDER_MOTOR_1_BACKWARD_TIME = 0.1
+SPIDER_MOTOR_2_DELAY = 5.0
+SPIDER_MOTOR_2_FORWARD_TIME = 15.0
+PING_PONG_SPEED = 0.5  # float: (0 - 1)
+PING_PONG_TIME = 10.0
+POTION_TIME = 10.0
 TRICKS = [
     "BUBBLE",
     "PINGPONG",
-    # "BAT",
+    "BAT",
     "TOY",
-    "STIR"
+    "STIR",
+    "SPIDER",
+    "POTION",
 ]
 TRICK_TIMES = {
     "BUBBLE": 10,
-    "PINGPONG": 5,
+    "PINGPONG": PING_PONG_TIME,
     "BAT": 8,
     "TOY": 5,
     "STIR": 10,
+    "SPIDER": (SPIDER_MOTOR_1_FORWARD_TIME
+               + SPIDER_MOTOR_1_BACKWARD_TIME
+               + SPIDER_MOTOR_2_DELAY
+               + SPIDER_MOTOR_2_FORWARD_TIME),
+    "POTION": POTION_TIME,
     "LIGHTS": LIGHTS_TIME,
 }
 # GPIO PINS
@@ -50,7 +66,13 @@ TREAT_MOTOR_FORWARD_PIN = 17
 TREAT_MOTOR_BACKWARD_PIN = 27
 STIR_MOTOR_FORWARD_PIN = 7
 STIR_MOTOR_BACKWARD_PIN = 8
-PING_PONG_PIN = 13
+SPIDER_MOTOR_1_FORWARD_PIN = 4
+SPIDER_MOTOR_1_BACKWARD_PIN = 5
+SPIDER_MOTOR_2_FORWARD_PIN = 16
+SPIDER_MOTOR_2_BACKWARD_PIN = 20
+PING_PONG_MOTOR_FORWARD_PIN = 9
+PING_PONG_MOTOR_BACKWARD_PIN = 10
+POTION_PIN = 11
 BUBBLE_SWITCH = 19
 BUBBLE_SWITCH_2 = 26
 LIGHTS_PIN_ON = 2
@@ -74,6 +96,21 @@ class TrickOrTreat():
         self.stir_motor = Motor(forward=STIR_MOTOR_FORWARD_PIN,
                                 backward=STIR_MOTOR_BACKWARD_PIN)
         self.stir_motor.stop()
+        self.spider_motor_1 = Motor(
+            forward=SPIDER_MOTOR_1_FORWARD_PIN,
+            backward=SPIDER_MOTOR_1_BACKWARD_PIN,
+        )
+        self.spider_motor_1.stop()
+        self.spider_motor_2 = Motor(
+            forward=SPIDER_MOTOR_2_FORWARD_PIN,
+            backward=SPIDER_MOTOR_2_BACKWARD_PIN,
+        )
+        self.spider_motor_2.stop()
+        self.ping_pong_motor = Motor(
+            forward=PING_PONG_MOTOR_FORWARD_PIN,
+            backward=PING_PONG_MOTOR_BACKWARD_PIN,
+        )
+        self.ping_pong_motor.stop()
         # Setup buttons
         # self.ghost_button = Button(GHOST_BUTTON_PIN)
         self.treat_button = Button(TREAT_BUTTON_PIN)
@@ -99,8 +136,7 @@ class TrickOrTreat():
                                             active_high=False)
         self.bat = DigitalOutputDevice(BAT_PIN, active_high=False)
         self.toy = DigitalOutputDevice(TOY_PIN, active_high=False)
-        self.ping_pong = DigitalOutputDevice(PING_PONG_PIN,
-                                             active_high=False)
+        self.potion = DigitalOutputDevice(POTION_PIN, active_high=False)
         self.lights_on = DigitalOutputDevice(LIGHTS_PIN_ON,
                                              active_high=False)
         self.lights_off = DigitalOutputDevice(LIGHTS_PIN_OFF,
@@ -177,6 +213,8 @@ class TrickOrTreat():
                     "TOY": self._toy_trick,
                     "LIGHTS": self._lights_trick,
                     "STIR": self._stir_trick,
+                    "SPIDER": self._spider_trick,
+                    "POTION": self._potion_trick,
                 }
                 handlers[trick]()
             except Exception:
@@ -197,11 +235,12 @@ class TrickOrTreat():
 
     def _ping_pong_trick(self):
         self.trick_led.on()
-        self.ping_pong.on()
-        while (time.time() - self.trick_end_time) < 0:
-            time.sleep(0.01)
-        self.ping_pong.off()
-        self.trick_led.off()
+        try:
+            self.ping_pong_motor.forward(PING_PONG_SPEED)
+            time.sleep(PING_PONG_TIME)
+        finally:
+            self.ping_pong_motor.stop()
+            self.trick_led.off()
 
     def _toy_trick(self):
         self.trick_led.on()
@@ -245,6 +284,32 @@ class TrickOrTreat():
             time.sleep(0.01)
         self.stir_motor.stop()
         self.trick_led.off()
+
+    def _spider_trick(self):
+        self.trick_led.on()
+        try:
+            self.spider_motor_1.forward(SPIDER_MOTOR_1_SPEED)
+            time.sleep(SPIDER_MOTOR_1_FORWARD_TIME)
+            self.spider_motor_1.backward(SPIDER_MOTOR_1_SPEED)
+            time.sleep(SPIDER_MOTOR_1_BACKWARD_TIME)
+            self.spider_motor_1.stop()
+
+            time.sleep(SPIDER_MOTOR_2_DELAY)
+            self.spider_motor_2.forward(SPIDER_MOTOR_2_SPEED)
+            time.sleep(SPIDER_MOTOR_2_FORWARD_TIME)
+        finally:
+            self.spider_motor_1.stop()
+            self.spider_motor_2.stop()
+            self.trick_led.off()
+
+    def _potion_trick(self):
+        self.trick_led.on()
+        self.potion.on()
+        try:
+            time.sleep(POTION_TIME)
+        finally:
+            self.potion.off()
+            self.trick_led.off()
 
     def _sphero_trick2(self):
         self.sphero.setLEDColor(red=255, green=0, blue=0)
@@ -316,13 +381,16 @@ class TrickOrTreat():
         self.treat_queue.put_nowait(None)
         self.treat_motor.stop()
         self.stir_motor.stop()
+        self.ping_pong_motor.stop()
+        self.spider_motor_1.stop()
+        self.spider_motor_2.stop()
         self.trick_led.off()
         self.treat_led.off()
         self.bubble_switch.off()
         self.bubble_switch_2.off()
         self.bat.off()
         self.toy.off()
-        self.ping_pong.off()
+        self.potion.off()
         self.doorbell.off()
         if self.sphero is not None:
             self.sphero.disconnect()

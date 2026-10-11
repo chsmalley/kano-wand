@@ -28,6 +28,7 @@ SPELL_TRICKS = {
     "INCENDIO": "TOY",
     "LUMOS": "LIGHTS",
     "REDUCTO": "STIR",
+    "ENGORGIO": "SPIDER",
 }
 
 TRICK_CONTROLLER_ENABLED = os.getenv(
