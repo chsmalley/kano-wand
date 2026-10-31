@@ -5,6 +5,7 @@ import sys
 import threading
 import time
 from itertools import cycle
+from typing import Callable
 
 from gpiozero import Motor, Button, LED, DigitalOutputDevice
 
@@ -25,13 +26,12 @@ SPHERO_SPEED = 100  # int: (0 - 255)
 CANDY_SPEED = 0.3  # float: (0 - 1)
 BLOOD_SPEED = 0.5  # float: (0 - 1)
 STIR_SPEED = 0.2  # float: (0 - 1)
-SPIDER_MOTOR_1_SPEED = 0.8  # float: (0 - 1)
 SPIDER_MOTOR_2_SPEED = 0.9  # float: (0 - 1)
-SPIDER_MOTOR_1_FORWARD_TIME = 0.7
-SPIDER_MOTOR_1_BACKWARD_TIME = 0.6
-SPIDER_MOTOR_2_DELAY = 3.0
-SPIDER_MOTOR_2_FORWARD_TIME = 7.0
-PING_PONG_SPEED = 0.6  # float: (0 - 1)
+SPIDER_MOTOR_2_INITIAL_FORWARD_TIME = 0.5
+SPIDER_MOTOR_2_DELAY = 5.0
+SPIDER_MOTOR_2_FORWARD_TIME = 0.7
+SPIDER_MOTOR_2_BACKWARD_TIME = 0.6
+PING_PONG_SPEED = 0.3  # float: (0 - 1)
 PING_PONG_TIME = 4.0
 POTION_TIME = 10.0
 POTION_SPEED = 0.4
@@ -50,10 +50,10 @@ TRICK_TIMES = {
     "BAT": 8,
     "FLAME": 8,
     "STIR": 10,
-    "SPIDER": (SPIDER_MOTOR_1_FORWARD_TIME
-               + SPIDER_MOTOR_1_BACKWARD_TIME
+    "SPIDER": (SPIDER_MOTOR_2_INITIAL_FORWARD_TIME
                + SPIDER_MOTOR_2_DELAY
-               + SPIDER_MOTOR_2_FORWARD_TIME),
+               + SPIDER_MOTOR_2_FORWARD_TIME
+               + SPIDER_MOTOR_2_BACKWARD_TIME),
     "POTION": POTION_TIME,
     "LIGHTS": LIGHTS_TIME,
 }
@@ -85,8 +85,13 @@ DOORBELL_PIN = 6
 
 # Trick or Treat object to handle devices
 class TrickOrTreat():
-    def __init__(self, sphero_mac: str):
+    def __init__(
+        self,
+        sphero_mac: str,
+        on_treat: Callable[[str], None] | None = None,
+    ):
         self.running = False
+        self.on_treat = on_treat
         self.current_trick = None
         self.active_tricks = {}
         self._active_tricks_lock = threading.Lock()
@@ -181,9 +186,22 @@ class TrickOrTreat():
 
         self.trick_queue.put_nowait(trick)
 
-    def trigger_treat(self):
+    def trigger_treat(self, source="spell"):
         """Queue one treat for the controller's worker thread."""
-        self.treat_queue.put_nowait("CANDY")
+        self.treat_queue.put_nowait(("CANDY", source))
+
+    def _handle_treats(self):
+        while self.running:
+            treat = self.treat_queue.get()
+            if treat is None:
+                break
+
+            treat_type, source = treat
+            if treat_type == "CANDY":
+                if self.on_treat is not None:
+                    self.on_treat(source)
+                print("treat button pressed")
+                self._treat()
 
     
     def _handle_continuous_tricks(self):
@@ -195,13 +213,6 @@ class TrickOrTreat():
                     self._sphero_trick()
                     self.time_since_eye = time.time()
 
-    def _handle_treats(self):
-        while self.running:
-            treat = self.treat_queue.get()
-            if treat == "CANDY":
-                print(f"treat button pressed")
-                self._treat()
-        
     def _handle_tricks(self):
         while self.running:
             try:
@@ -340,22 +351,27 @@ class TrickOrTreat():
     def _spider_trick(self, stop_event, deadline):
         try:
             self.spider_motor_2.forward(SPIDER_MOTOR_2_SPEED)
-            if not self._wait_for_duration(stop_event, SPIDER_MOTOR_2_DELAY):
-                return
-            self._wait_until(stop_event, deadline)
-            self.spider_motor_1.forward(SPIDER_MOTOR_1_SPEED)
             if not self._wait_for_duration(
-                stop_event, SPIDER_MOTOR_1_FORWARD_TIME
+                stop_event, SPIDER_MOTOR_2_INITIAL_FORWARD_TIME
             ):
                 return
-            self.spider_motor_1.backward(SPIDER_MOTOR_1_SPEED)
+            self.spider_motor_2.stop()
             if not self._wait_for_duration(
-                stop_event, SPIDER_MOTOR_1_BACKWARD_TIME
+                stop_event, SPIDER_MOTOR_2_DELAY
             ):
                 return
-            self.spider_motor_1.stop()
+            self.spider_motor_2.forward(SPIDER_MOTOR_2_SPEED)
+            if not self._wait_for_duration(
+                stop_event, SPIDER_MOTOR_2_FORWARD_TIME
+            ):
+                return
+            self.spider_motor_2.stop()
+            self.spider_motor_2.backward(SPIDER_MOTOR_2_SPEED)
+            if not self._wait_for_duration(
+                stop_event, SPIDER_MOTOR_2_BACKWARD_TIME
+            ):
+                return
         finally:
-            self.spider_motor_1.stop()
             self.spider_motor_2.stop()
 
     def _potion_trick(self, stop_event, deadline):
@@ -416,7 +432,7 @@ class TrickOrTreat():
             # print(f"curr: {self.curr_trick_button} prev: {self.prev_trick_button}")
             if treat_pressed:
                 logging.info("treat")
-                self.treat_queue.put("CANDY")
+                self.trigger_treat(source="button")
             elif trick_pressed:
                 if not self.current_trick:
                     logging.info("trick")
@@ -477,4 +493,3 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         trick_or_treat.stop()
     print("\ngoodbye")
-

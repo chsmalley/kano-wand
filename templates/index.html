@@ -220,6 +220,31 @@
 
 		.footer-note { margin: 18px 0 0; color: var(--muted); font-size: .8rem; text-align: center; }
 
+		.activity {
+			margin-top: 26px;
+			padding: 24px;
+			border: 1px solid #39335a;
+			background: linear-gradient(145deg, #11142eeb, #15122beb);
+			box-shadow: 0 22px 70px #03040f66;
+		}
+
+		.activity-heading {
+			display: flex;
+			align-items: baseline;
+			justify-content: space-between;
+			gap: 16px;
+		}
+
+		.activity h2 { margin: 0; font-size: 1.5rem; font-weight: normal; }
+		.activity-caption, .activity-status { color: var(--muted); font-size: .78rem; }
+		.activity-caption { margin: 7px 0 0; }
+		.activity-status { margin: 0; text-align: right; }
+		.chart-wrap { position: relative; width: 100%; height: 300px; margin-top: 18px; }
+		#activity-chart { display: block; width: 100%; height: 100%; }
+		.activity-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 14px; }
+		.legend-item { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: .75rem; }
+		.legend-swatch { width: 10px; height: 10px; border-radius: 2px; }
+
 		@keyframes rise-in { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
 		@keyframes float-in { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: scale(1); } }
 		@keyframes breathe { 50% { transform: scale(1.04); opacity: .7; } }
@@ -231,6 +256,10 @@
 			.stage { min-height: 500px; margin-top: 20px; }
 			.moon { top: 30px; right: 8%; width: 76px; height: 76px; }
 			.signal { width: 290px; height: 290px; }
+			.activity { padding: 18px 14px; }
+			.activity-heading { align-items: start; flex-direction: column; }
+			.activity-status { text-align: left; }
+			.chart-wrap { height: 240px; }
 		}
 	</style>
 </head>
@@ -258,6 +287,20 @@
 			</div>
 		</section>
 
+		<section class="activity" aria-labelledby="activity-title">
+			<div class="activity-heading">
+				<div>
+					<h2 id="activity-title">Tricks &amp; treats</h2>
+					<p class="activity-caption">Events per 15 minutes · rolling 24 hours</p>
+				</div>
+				<p class="activity-status" id="activity-status" role="status">Loading activity…</p>
+			</div>
+			<div class="chart-wrap">
+				<canvas id="activity-chart" role="img" aria-label="Tricks and treats per 15-minute interval for the past 24 hours"></canvas>
+			</div>
+			<div class="activity-legend" id="activity-legend" aria-label="Chart legend"></div>
+		</section>
+
 		<p class="footer-note">The cauldron is warm. The night is listening.</p>
 	</main>
 
@@ -266,6 +309,21 @@
 		const confidenceElement = document.getElementById("confidence");
 		const meterElement = document.getElementById("meter");
 		const statusElement = document.getElementById("status");
+		const activityCanvas = document.getElementById("activity-chart");
+		const activityStatus = document.getElementById("activity-status");
+		const activityLegend = document.getElementById("activity-legend");
+		const chartColors = {
+			BAT: "#b58cff",
+			BUBBLE: "#62c9d6",
+			FLAME: "#ff8d3b",
+			LIGHTS: "#f8df9a",
+			PINGPONG: "#91c46c",
+			POTION: "#df75b2",
+			SPIDER: "#8d65d8",
+			STIR: "#e9c46a",
+			Treats: "#f06c57"
+		};
+		let activityData = null;
 
 		function showSpell(data) {
 			if (!data.spell) {
@@ -298,8 +356,100 @@
 			}
 		}
 
+		function drawActivity() {
+			if (!activityData) return;
+
+			const bounds = activityCanvas.getBoundingClientRect();
+			if (!bounds.width || !bounds.height) return;
+			const pixelRatio = window.devicePixelRatio || 1;
+			activityCanvas.width = Math.round(bounds.width * pixelRatio);
+			activityCanvas.height = Math.round(bounds.height * pixelRatio);
+			const context = activityCanvas.getContext("2d");
+			context.scale(pixelRatio, pixelRatio);
+
+			const width = bounds.width;
+			const height = bounds.height;
+			const padding = { top: 12, right: 12, bottom: 34, left: 34 };
+			const plotWidth = width - padding.left - padding.right;
+			const plotHeight = height - padding.top - padding.bottom;
+			const keys = Object.keys(activityData.series);
+			const totals = activityData.labels.map((_, index) =>
+				keys.reduce((sum, key) => sum + activityData.series[key][index], 0)
+			);
+			const maxCount = Math.max(1, ...totals);
+			const gridStep = Math.max(1, Math.ceil(maxCount / 4));
+			const axisMax = Math.max(1, Math.ceil(maxCount / gridStep) * gridStep);
+
+			context.clearRect(0, 0, width, height);
+			context.font = "11px Trebuchet MS, sans-serif";
+			context.textBaseline = "middle";
+			for (let count = 0; count <= axisMax; count += gridStep) {
+				const y = padding.top + plotHeight - (count / axisMax) * plotHeight;
+				context.strokeStyle = "#ffffff1c";
+				context.beginPath();
+				context.moveTo(padding.left, y);
+				context.lineTo(width - padding.right, y);
+				context.stroke();
+				context.fillStyle = "#b9a98b";
+				context.textAlign = "right";
+				context.fillText(String(count), padding.left - 8, y);
+			}
+
+			const slotWidth = plotWidth / activityData.labels.length;
+			const barWidth = Math.max(1, slotWidth * 0.72);
+			activityData.labels.forEach((label, index) => {
+				let stacked = 0;
+				keys.forEach((key) => {
+					const count = activityData.series[key][index];
+					if (!count) return;
+					const barHeight = (count / axisMax) * plotHeight;
+					const x = padding.left + index * slotWidth + (slotWidth - barWidth) / 2;
+					const y = padding.top + plotHeight - ((stacked + count) / axisMax) * plotHeight;
+					context.fillStyle = chartColors[key] || "#b9a98b";
+					context.fillRect(x, y, barWidth, barHeight);
+					stacked += count;
+				});
+
+				if (index % 16 === 0 || index === activityData.labels.length - 1) {
+					const date = new Date(label);
+					const labelText = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+					const x = padding.left + index * slotWidth;
+					context.fillStyle = "#b9a98b";
+					context.textAlign = index === 0 ? "left" : index === activityData.labels.length - 1 ? "right" : "center";
+					context.fillText(labelText, x, height - 12);
+				}
+			});
+		}
+
+		async function refreshActivity() {
+			try {
+				const response = await fetch("/api/activity", { cache: "no-store" });
+				if (!response.ok) throw new Error("Activity data unavailable");
+				activityData = await response.json();
+				activityLegend.replaceChildren();
+				Object.keys(activityData.series).forEach((key) => {
+					const item = document.createElement("span");
+					item.className = "legend-item";
+					const swatch = document.createElement("span");
+					swatch.className = "legend-swatch";
+					swatch.style.backgroundColor = chartColors[key] || "#b9a98b";
+					const label = document.createElement("span");
+					label.textContent = key === "Treats" ? key : key.replaceAll("_", " ");
+					item.append(swatch, label);
+					activityLegend.append(item);
+				});
+				drawActivity();
+				activityStatus.textContent = `Updated ${new Date(activityData.updated_at).toLocaleTimeString()}`;
+			} catch (error) {
+				activityStatus.textContent = "Activity data unavailable";
+			}
+		}
+
 		refreshSpell();
 		setInterval(refreshSpell, 500);
+		refreshActivity();
+		setInterval(refreshActivity, 15000);
+		window.addEventListener("resize", drawActivity);
 	</script>
 </body>
 </html>
