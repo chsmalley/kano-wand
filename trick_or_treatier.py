@@ -27,9 +27,9 @@ BLOOD_SPEED = 0.5  # float: (0 - 1)
 STIR_SPEED = 0.2  # float: (0 - 1)
 SPIDER_MOTOR_1_SPEED = 0.8  # float: (0 - 1)
 SPIDER_MOTOR_2_SPEED = 0.9  # float: (0 - 1)
-SPIDER_MOTOR_1_FORWARD_TIME = 2.0
-SPIDER_MOTOR_1_BACKWARD_TIME = 1.5
-SPIDER_MOTOR_2_DELAY = 5.0
+SPIDER_MOTOR_1_FORWARD_TIME = 0.7
+SPIDER_MOTOR_1_BACKWARD_TIME = 0.6
+SPIDER_MOTOR_2_DELAY = 3.0
 SPIDER_MOTOR_2_FORWARD_TIME = 7.0
 PING_PONG_SPEED = 0.6  # float: (0 - 1)
 PING_PONG_TIME = 4.0
@@ -339,6 +339,10 @@ class TrickOrTreat():
 
     def _spider_trick(self, stop_event, deadline):
         try:
+            self.spider_motor_2.forward(SPIDER_MOTOR_2_SPEED)
+            if not self._wait_for_duration(stop_event, SPIDER_MOTOR_2_DELAY):
+                return
+            self._wait_until(stop_event, deadline)
             self.spider_motor_1.forward(SPIDER_MOTOR_1_SPEED)
             if not self._wait_for_duration(
                 stop_event, SPIDER_MOTOR_1_FORWARD_TIME
@@ -350,11 +354,6 @@ class TrickOrTreat():
             ):
                 return
             self.spider_motor_1.stop()
-
-            if not self._wait_for_duration(stop_event, SPIDER_MOTOR_2_DELAY):
-                return
-            self.spider_motor_2.forward(SPIDER_MOTOR_2_SPEED)
-            self._wait_until(stop_event, deadline)
         finally:
             self.spider_motor_1.stop()
             self.spider_motor_2.stop()

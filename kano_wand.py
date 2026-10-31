@@ -48,6 +48,7 @@ if os.getenv("SPELL_CLASSIFIER", "extra_trees").lower() == "dtw":
     print("WARNING: DTW inference is disabled; using ExtraTrees only.")
 
 BUTTON_UUID = "64A7000D-F691-4B93-A6F4-0968F5B648F8"
+KEEP_ALIVE_UUID = "64A7000F-F691-4B93-A6F4-0968F5B648F8"
 SERVICE_UUID = "64A70011-F691-4B93-A6F4-0968F5B648F8"
 QUATERNIONS_UUID = "64A70002-F691-4B93-A6F4-0968F5B648F8"
 MOTION_UUID = "64A7000C-F691-4B93-A6F4-0968F5B648F8"
@@ -61,6 +62,10 @@ ZMQ_BIND_HOST = os.getenv("ZMQ_BIND_HOST", "0.0.0.0")
 ZMQ_PORT = int(os.getenv("ZMQ_PORT", "5555"))
 NOTIFICATION_TIMEOUT = float(
     os.getenv("WAND_NOTIFICATION_TIMEOUT", "5.0")
+)
+KEEP_ALIVE_INTERVAL = max(
+    1.0,
+    float(os.getenv("WAND_KEEP_ALIVE_INTERVAL", "2.0")),
 )
 RECONNECT_DELAY = float(os.getenv("WAND_RECONNECT_DELAY", "2.0"))
 RECONNECT_MAX_DELAY = float(
@@ -226,6 +231,8 @@ class KanoWand:
         self._sensor_notifications_ready = asyncio.Event()
         self._motion_received_generation = None
         self._orientation_received_generation = None
+        self._keep_alive_task = None
+        self._keep_alive_warning_logged = False
 
         # Notification diagnostics.
         self.notification_counts = {
@@ -371,6 +378,51 @@ g       """
         if generation != self._client_generation:
             raise RuntimeError("BLE client became stale during notification verification.")
 
+    async def _stop_keep_alive(self):
+        task = self._keep_alive_task
+        self._keep_alive_task = None
+        if task is None:
+            return
+
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    async def _keep_alive_loop(self, generation):
+        """Periodically write the wand's keep-alive characteristic."""
+        while (
+            generation == self._client_generation
+            and self._connected_ready
+            and not self.shutdown_event.is_set()
+        ):
+            client = self.client
+            if (
+                generation != self._client_generation
+                or not self._connected_ready
+                or client is None
+                or not client.is_connected
+            ):
+                return
+
+            try:
+                await client.write_gatt_char(
+                    KEEP_ALIVE_UUID,
+                    b"\x01",
+                    response=True,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                if not self._keep_alive_warning_logged:
+                    print(
+                        "WARNING: Wand keep-alive write failed: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                    self._keep_alive_warning_logged = True
+                    await asyncio.sleep(KEEP_ALIVE_INTERVAL)
+
     async def connect(
         self,
         scan_timeout=10.0,
@@ -384,6 +436,7 @@ g       """
         notifications have arrived.
         """
         async with self._client_lock:
+            await self._stop_keep_alive()
             self._connecting = True
             self._connected_ready = False
             self._disconnecting = False
@@ -391,6 +444,7 @@ g       """
             self._sensor_notifications_ready.clear()
             self._motion_received_generation = None
             self._orientation_received_generation = None
+            self._keep_alive_warning_logged = False
             self._notifications_started.clear()
 
             # Invalidate every callback belonging to an older client before
@@ -489,6 +543,10 @@ g       """
                 self._connected_ready = True
                 self.bluetooth_disconnected.clear()
                 self.shutdown_event.clear()
+                self._keep_alive_task = asyncio.create_task(
+                    self._keep_alive_loop(generation),
+                    name=f"WandKeepAlive-{self.address}",
+                )
 
                 print(
                     "Notifications verified "
@@ -524,6 +582,7 @@ g       """
         accumulating across reconnects.
         """
         async with self._reconnect_lock:
+            await self._stop_keep_alive()
             self.last_reconnect_reason = reason or "unspecified"
             print("Attempting to reconnect to wand...")
             if reason:
@@ -608,6 +667,7 @@ g       """
 
     async def disconnect(self):
         """Final shutdown. No reconnect should be attempted afterward."""
+        await self._stop_keep_alive()
         if self._disconnecting:
             return
 
