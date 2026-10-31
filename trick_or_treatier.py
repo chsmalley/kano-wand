@@ -88,7 +88,12 @@ class TrickOrTreat():
     def __init__(self, sphero_mac: str):
         self.running = False
         self.current_trick = None
-        self.trick_end_time = time.time()
+        self.active_tricks = {}
+        self._active_tricks_lock = threading.Lock()
+        self._trick_locks = {
+            trick: threading.Lock() for trick in TRICK_TIMES
+        }
+        self._trick_threads = set()
         self.treat_queue = queue.Queue()
         self.trick_queue = queue.Queue()
         # Setup motors
@@ -167,7 +172,7 @@ class TrickOrTreat():
             )
 
     def trigger_trick(self, trick):
-        """Queue a named trick for the controller's worker thread."""
+        """Queue a named trick for the controller's dispatcher."""
         trick = trick.upper().strip()
         if trick not in TRICK_TIMES:
             raise ValueError(f"Unknown trick: {trick}")
@@ -204,114 +209,162 @@ class TrickOrTreat():
             except queue.Empty:
                 continue
 
-            if not self.running:
+            if trick is None:
                 self.trick_queue.task_done()
                 break
 
-            self.current_trick = trick
-            self.trick_end_time = time.time() + TRICK_TIMES[trick]
-            logging.info("Performing trick: %s", trick)
-            try:
-                handlers = {
-                    "BUBBLE": self._bubble_trick,
-                    "PINGPONG": self._ping_pong_trick,
-                    "BAT": self._bat_trick,
-                    "FLAME": self._flame_trick,
-                    "LIGHTS": self._lights_trick,
-                    "STIR": self._stir_trick,
-                    "SPIDER": self._spider_trick,
-                    "POTION": self._potion_trick,
-                }
-                handlers[trick]()
-            except Exception:
-                logging.exception("Trick failed: %s", trick)
-            finally:
-                self.current_trick = None
-                self.trick_queue.task_done()
-            
-    def _bubble_trick(self):
-        self.trick_led.on()
+            with self._active_tricks_lock:
+                if not self.running:
+                    self.trick_queue.task_done()
+                    break
+
+                stop_event = threading.Event()
+                worker = threading.Thread(
+                    target=self._run_trick,
+                    args=(trick, stop_event),
+                    name=f"Trick-{trick}",
+                    daemon=True,
+                )
+                was_idle = not self.active_tricks
+                self.active_tricks[stop_event] = trick
+                self.current_trick = trick
+                self._trick_threads.add(worker)
+                if was_idle:
+                    self.trick_led.on()
+                worker.start()
+
+    def _run_trick(self, trick, stop_event):
+        handlers = {
+            "BUBBLE": self._bubble_trick,
+            "PINGPONG": self._ping_pong_trick,
+            "BAT": self._bat_trick,
+            "FLAME": self._flame_trick,
+            "LIGHTS": self._lights_trick,
+            "STIR": self._stir_trick,
+            "SPIDER": self._spider_trick,
+            "POTION": self._potion_trick,
+        }
+        try:
+            with self._trick_locks[trick]:
+                if self.running and not stop_event.is_set():
+                    deadline = time.monotonic() + TRICK_TIMES[trick]
+                    logging.info("Performing trick: %s", trick)
+                    handlers[trick](stop_event, deadline)
+        except Exception:
+            logging.exception("Trick failed: %s", trick)
+        finally:
+            with self._active_tricks_lock:
+                self.active_tricks.pop(stop_event, None)
+                self.current_trick = next(
+                    reversed(self.active_tricks.values()),
+                    None,
+                )
+                if not self.active_tricks:
+                    self.trick_led.off()
+                self._trick_threads.discard(threading.current_thread())
+            self.trick_queue.task_done()
+
+    def _wait_for_duration(self, stop_event, duration):
+        return self.running and not stop_event.wait(max(0.0, duration))
+
+    def _wait_until(self, stop_event, deadline):
+        return self._wait_for_duration(
+            stop_event,
+            deadline - time.monotonic(),
+        )
+
+    def _stop_active_tricks(self):
+        with self._active_tricks_lock:
+            for stop_event in self.active_tricks:
+                stop_event.set()
+
+    def _bubble_trick(self, stop_event, deadline):
         self.bubble_switch.on()
         self.bubble_switch_2.on()
-        while (time.time() - self.trick_end_time) < 0:
-            time.sleep(0.01)
-        self.bubble_switch.off()
-        self.bubble_switch_2.off()
-        self.trick_led.off()
-
-    def _ping_pong_trick(self):
-        self.trick_led.on()
         try:
-            self.ping_pong_motor.forward(PING_PONG_SPEED)
-            time.sleep(PING_PONG_TIME)
+            self._wait_until(stop_event, deadline)
+        finally:
+            self.bubble_switch.off()
+            self.bubble_switch_2.off()
+
+    def _ping_pong_trick(self, stop_event, deadline):
+        self.ping_pong_motor.forward(PING_PONG_SPEED)
+        try:
+            self._wait_until(stop_event, deadline)
         finally:
             self.ping_pong_motor.stop()
-            self.trick_led.off()
 
-    def _flame_trick(self):
-        self.trick_led.on()
+    def _flame_trick(self, stop_event, deadline):
         self.flame.on()
-        while (time.time() - self.trick_end_time) < 0:
-            time.sleep(0.01)
-        self.flame.off()
-        self.trick_led.off()
+        try:
+            self._wait_until(stop_event, deadline)
+        finally:
+            self.flame.off()
 
-    def _bat_trick(self):
-        self.trick_led.on()
+    def _bat_trick(self, stop_event, deadline):
         self.bat.on()
-        while (time.time() - self.trick_end_time) < 0:
-            time.sleep(0.01)
-        self.bat.off()
-        self.trick_led.off()
+        try:
+            self._wait_until(stop_event, deadline)
+        finally:
+            self.bat.off()
 
-    def _lights_trick(self):
-        self.trick_led.on()
-        while (time.time() - self.trick_end_time) < 0:
-            self.lights_on.on()
-            time.sleep(BUTTON_PRESS_DELAY)
+    def _lights_trick(self, stop_event, deadline):
+        try:
+            while self.running and time.monotonic() < deadline:
+                self.lights_on.on()
+                if not self._wait_for_duration(stop_event, BUTTON_PRESS_DELAY):
+                    break
+                self.lights_on.off()
+                if not self._wait_for_duration(stop_event, LIGHTS_TIME):
+                    break
+                self.lights_off.on()
+                if not self._wait_for_duration(stop_event, BUTTON_PRESS_DELAY):
+                    break
+                self.lights_off.off()
+        finally:
             self.lights_on.off()
-            time.sleep(LIGHTS_TIME)
-            self.lights_off.on()
-            time.sleep(BUTTON_PRESS_DELAY)
             self.lights_off.off()
-        self.trick_led.off()
 
-    def _stir_trick(self):
-        self.trick_led.on()
+    def _stir_trick(self, stop_event, deadline):
         self.doorbell.on()
-        time.sleep(BUTTON_PRESS_DELAY)
-        self.doorbell.off()
-        self.stir_motor.forward(STIR_SPEED)
-        while (time.time() - self.trick_end_time) < 0:
-            time.sleep(0.01)
-        self.stir_motor.stop()
-        self.trick_led.off()
+        try:
+            if not self._wait_for_duration(stop_event, BUTTON_PRESS_DELAY):
+                return
+            self.doorbell.off()
+            self.stir_motor.forward(STIR_SPEED)
+            self._wait_until(stop_event, deadline)
+        finally:
+            self.doorbell.off()
+            self.stir_motor.stop()
 
-    def _spider_trick(self):
-        self.trick_led.on()
+    def _spider_trick(self, stop_event, deadline):
         try:
             self.spider_motor_1.forward(SPIDER_MOTOR_1_SPEED)
-            time.sleep(SPIDER_MOTOR_1_FORWARD_TIME)
+            if not self._wait_for_duration(
+                stop_event, SPIDER_MOTOR_1_FORWARD_TIME
+            ):
+                return
             self.spider_motor_1.backward(SPIDER_MOTOR_1_SPEED)
-            time.sleep(SPIDER_MOTOR_1_BACKWARD_TIME)
+            if not self._wait_for_duration(
+                stop_event, SPIDER_MOTOR_1_BACKWARD_TIME
+            ):
+                return
             self.spider_motor_1.stop()
 
-            time.sleep(SPIDER_MOTOR_2_DELAY)
+            if not self._wait_for_duration(stop_event, SPIDER_MOTOR_2_DELAY):
+                return
             self.spider_motor_2.forward(SPIDER_MOTOR_2_SPEED)
-            time.sleep(SPIDER_MOTOR_2_FORWARD_TIME)
+            self._wait_until(stop_event, deadline)
         finally:
             self.spider_motor_1.stop()
             self.spider_motor_2.stop()
-            self.trick_led.off()
 
-    def _potion_trick(self):
-        self.trick_led.on()
+    def _potion_trick(self, stop_event, deadline):
         self.potion_motor.forward(POTION_SPEED)
         try:
-            time.sleep(POTION_TIME)
+            self._wait_until(stop_event, deadline)
         finally:
             self.potion_motor.stop()
-            self.trick_led.off()
 
     def _sphero_trick2(self):
         self.sphero.setLEDColor(red=255, green=0, blue=0)
@@ -370,17 +423,26 @@ class TrickOrTreat():
                     logging.info("trick")
                     self.trigger_trick(next(self.tricks))
                 else:
-                    self.trick_end_time = time.time()
+                    self._stop_active_tricks()
             else:
                 # Don't run too fast
                 time.sleep(0.01)
         print("end of run")
 
     def stop(self):
-        self.running = False
-        self.current_trick = None
+        with self._active_tricks_lock:
+            self.running = False
+            for stop_event in self.active_tricks:
+                stop_event.set()
         self.trick_queue.put_nowait(None)
         self.treat_queue.put_nowait(None)
+        if self.trick_thread.is_alive():
+            self.trick_thread.join(timeout=1)
+        with self._active_tricks_lock:
+            trick_threads = list(self._trick_threads)
+        for thread in trick_threads:
+            thread.join(timeout=1)
+        self.current_trick = None
         self.treat_motor.stop()
         self.stir_motor.stop()
         self.ping_pong_motor.stop()
