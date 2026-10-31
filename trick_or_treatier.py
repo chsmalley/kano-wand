@@ -26,12 +26,12 @@ CANDY_SPEED = 0.3  # float: (0 - 1)
 BLOOD_SPEED = 0.5  # float: (0 - 1)
 STIR_SPEED = 0.2  # float: (0 - 1)
 SPIDER_MOTOR_1_SPEED = 0.8  # float: (0 - 1)
-SPIDER_MOTOR_2_SPEED = 0.7  # float: (0 - 1)
+SPIDER_MOTOR_2_SPEED = 0.9  # float: (0 - 1)
 SPIDER_MOTOR_1_FORWARD_TIME = 2.0
 SPIDER_MOTOR_1_BACKWARD_TIME = 1.5
 SPIDER_MOTOR_2_DELAY = 5.0
 SPIDER_MOTOR_2_FORWARD_TIME = 7.0
-PING_PONG_SPEED = 0.4  # float: (0 - 1)
+PING_PONG_SPEED = 0.6  # float: (0 - 1)
 PING_PONG_TIME = 4.0
 POTION_TIME = 10.0
 POTION_SPEED = 0.4
@@ -175,6 +175,10 @@ class TrickOrTreat():
             raise RuntimeError("Trick controller is not running")
 
         self.trick_queue.put_nowait(trick)
+
+    def trigger_treat(self):
+        """Queue one treat for the controller's worker thread."""
+        self.treat_queue.put_nowait("CANDY")
 
     
     def _handle_continuous_tricks(self):

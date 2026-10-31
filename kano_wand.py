@@ -995,16 +995,16 @@ def classify_worker(wand):
                     "The gesture was not classified with "
                     "enough confidence."
                 )
-            else:
-                wand.publish_spell(
-                    prediction,
-                    confidence,
-                    top_predictions,
-                )
-                print(
-                    f"Published {prediction} to "
-                    f"tcp://{ZMQ_BIND_HOST}:{ZMQ_PORT}"
-                )
+
+            wand.publish_spell(
+                prediction,
+                confidence,
+                top_predictions,
+            )
+            print(
+                f"Published {prediction} to "
+                f"tcp://{ZMQ_BIND_HOST}:{ZMQ_PORT}"
+            )
 
             print("=" * 60)
 

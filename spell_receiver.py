@@ -22,6 +22,7 @@ class SpellReceiver:
     """
 
     VALID_SPELLS = {
+        "UNKNOWN",
         "STUPEFY",
         "WINGARDIUM_LEVIOSA",
         "REDUCIO",

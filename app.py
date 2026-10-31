@@ -212,7 +212,12 @@ def spell_processor():
                     "timestamp": time.time(),
                 }
 
-            run_spell_action(spell)
+            if spell == "UNKNOWN":
+                if trick_controller is not None:
+                    trick_controller.trigger_treat()
+                    logging.info("Added a treat for an unclassified gesture.")
+            else:
+                run_spell_action(spell)
             send_nerf_command(spell, confidence)
             print(f"CAST: {spell}")
 
