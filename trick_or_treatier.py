@@ -26,15 +26,16 @@ SPHERO_SPEED = 100  # int: (0 - 255)
 CANDY_SPEED = 0.3  # float: (0 - 1)
 BLOOD_SPEED = 0.5  # float: (0 - 1)
 STIR_SPEED = 0.2  # float: (0 - 1)
+SPIDER_MOTOR_1_SPEED = 0.8  # float: (0 - 1)
 SPIDER_MOTOR_2_SPEED = 0.9  # float: (0 - 1)
-SPIDER_MOTOR_2_INITIAL_FORWARD_TIME = 0.5
+SPIDER_MOTOR_2_INITIAL_FORWARD_TIME = 1.5
 SPIDER_MOTOR_2_DELAY = 5.0
-SPIDER_MOTOR_2_FORWARD_TIME = 0.7
-SPIDER_MOTOR_2_BACKWARD_TIME = 0.6
+SPIDER_MOTOR_1_FORWARD_TIME = 0.7
+SPIDER_MOTOR_1_BACKWARD_TIME = 0.6
 PING_PONG_SPEED = 0.3  # float: (0 - 1)
 PING_PONG_TIME = 4.0
 POTION_TIME = 10.0
-POTION_SPEED = 0.4
+POTION_SPEED = 0.25
 TRICKS = [
     "BUBBLE",
     "PINGPONG",
@@ -52,8 +53,8 @@ TRICK_TIMES = {
     "STIR": 10,
     "SPIDER": (SPIDER_MOTOR_2_INITIAL_FORWARD_TIME
                + SPIDER_MOTOR_2_DELAY
-               + SPIDER_MOTOR_2_FORWARD_TIME
-               + SPIDER_MOTOR_2_BACKWARD_TIME),
+               + SPIDER_MOTOR_1_FORWARD_TIME
+               + SPIDER_MOTOR_1_BACKWARD_TIME),
     "POTION": POTION_TIME,
     "LIGHTS": LIGHTS_TIME,
 }
@@ -360,18 +361,19 @@ class TrickOrTreat():
                 stop_event, SPIDER_MOTOR_2_DELAY
             ):
                 return
-            self.spider_motor_2.forward(SPIDER_MOTOR_2_SPEED)
+            self.spider_motor_1.forward(SPIDER_MOTOR_1_SPEED)
             if not self._wait_for_duration(
-                stop_event, SPIDER_MOTOR_2_FORWARD_TIME
+                stop_event, SPIDER_MOTOR_1_FORWARD_TIME
             ):
                 return
-            self.spider_motor_2.stop()
-            self.spider_motor_2.backward(SPIDER_MOTOR_2_SPEED)
+            self.spider_motor_1.stop()
+            self.spider_motor_1.backward(SPIDER_MOTOR_1_SPEED)
             if not self._wait_for_duration(
-                stop_event, SPIDER_MOTOR_2_BACKWARD_TIME
+                stop_event, SPIDER_MOTOR_1_BACKWARD_TIME
             ):
                 return
         finally:
+            self.spider_motor_1.stop()
             self.spider_motor_2.stop()
 
     def _potion_trick(self, stop_event, deadline):
