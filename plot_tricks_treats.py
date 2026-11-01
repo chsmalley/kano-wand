@@ -84,7 +84,13 @@ def main():
     parser.add_argument(
         "-o", "--output",
         type=Path,
-        help="save the chart to this image path instead of displaying it",
+        default=Path("plot_tricks_treats.html"),
+        help="HTML file to save the chart to (default: plot_tricks_treats.html)",
+    )
+    parser.add_argument(
+        "--no-open",
+        action="store_true",
+        help="save the HTML chart without opening it in a browser",
     )
     args = parser.parse_args()
 
@@ -103,29 +109,30 @@ def main():
         for index in range(bin_count)
     ]
 
-    import matplotlib.pyplot as plt
+    import plotly.graph_objects as go
 
-    fig, ax = plt.subplots(figsize=(max(10, bin_count * 0.55), 6))
-    bottom = [0] * bin_count
+    fig = go.Figure()
     for name, values in counts.items():
-        ax.bar(labels, values, bottom=bottom, label=name)
-        bottom = [total + value for total, value in zip(bottom, values)]
+        fig.add_trace(go.Bar(
+            name=name,
+            x=labels,
+            y=values,
+            hovertemplate="%{x}<br>%{y} %{fullData.name}<extra></extra>",
+        ))
 
-    ax.set_title(f"Tricks and treats since 6 PM — {now:%Y-%m-%d}")
-    ax.set_xlabel("Local time (15-minute bins)")
-    ax.set_ylabel("Events")
-    ax.grid(axis="y", alpha=0.3)
-    ax.legend(title="Event", ncols=2)
-    plt.xticks(rotation=45, ha="right")
-    fig.tight_layout()
+    fig.update_layout(
+        title=f"Tricks and treats since 6 PM — {now:%Y-%m-%d}",
+        xaxis_title="Local time (15-minute bins)",
+        yaxis_title="Events",
+        barmode="stack",
+        hovermode="x unified",
+        xaxis={"tickangle": -45},
+        legend_title="Event",
+    )
 
-    if args.output:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(args.output, dpi=150, bbox_inches="tight")
-        print(f"Saved chart to {args.output}")
-    else:
-        plt.show()
-    plt.close(fig)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    fig.write_html(args.output, auto_open=not args.no_open)
+    print(f"Saved interactive chart to {args.output}")
 
 
 if __name__ == "__main__":

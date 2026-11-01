@@ -24,6 +24,8 @@ To plot the current day's events from 6 PM in local 15-minute intervals, run:
 python plot_tricks_treats.py event_long.csv
 ```
 
-Pass `--output chart.png` to save the chart instead of displaying it. The input
-CSV uses the event log columns (`timestamp`, `event`, and `spell`). The script
-requires Matplotlib (`python -m pip install matplotlib`).
+The script saves an interactive HTML chart to `plot_tricks_treats.html` and
+opens it in your browser. Pass `--output chart.html` to choose another output
+path, or add `--no-open` to save without opening it. The input CSV uses the
+event log columns (`timestamp`, `event`, and `spell`). The script requires
+Plotly (`python -m pip install plotly`).
